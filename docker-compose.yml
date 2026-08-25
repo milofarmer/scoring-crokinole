@@ -1,0 +1,25 @@
+# Crokinole tournament — one container, SQLite persisted in a named volume.
+#   docker compose up --build   →   http://localhost:8085
+services:
+  crok:
+    build: .
+    ports:
+      - "8085:80"          # host 8085 (8080 is used by smt-tennis-playout)
+    environment:
+      CROK_DB_DRIVER: sqlite            # or "mysql" to use the block below
+      CROK_SQLITE_PATH: /var/www/html/data/crok.sqlite
+      # --- optional MySQL backend ---
+      # CROK_DB_DRIVER: mysql
+      # CROK_DB_HOST: db
+      # CROK_DB_NAME: crok
+      # CROK_DB_USER: crok
+      # CROK_DB_PASS: crok
+    volumes:
+      # Live-edit: source is bind-mounted, so changes show on reload (no rebuild).
+      - ./public:/var/www/html/public
+      - ./src:/var/www/html/src
+      - crok_data:/var/www/html/data
+    restart: unless-stopped
+
+volumes:
+  crok_data:
