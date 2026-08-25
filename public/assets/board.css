@@ -15,11 +15,19 @@
 .board .card h2 { font-size:clamp(14px,1.4vw,22px); display:flex; align-items:center; gap:10px; }
 .board .card h2 .dot { width:12px; height:12px; border-radius:50%; }
 
-.board table.stand { font-size:clamp(15px,1.35vw,24px); }
-.board table.stand th { font-size:clamp(10px,.85vw,14px); padding:6px 6px clamp(8px,1vw,14px); }
-.board table.stand td { padding:clamp(8px,1vw,15px) 6px; }
-.board table.stand td.pts { font-size:clamp(18px,1.7vw,30px); }
-.board table.stand .players { font-size:clamp(11px,.9vw,15px); }
+/* Split a poule ranking into two inner columns so all teams stay on screen. */
+.standwrap { display:flex; gap:clamp(10px,1.4vw,26px); align-items:flex-start; }
+.standwrap > table { flex:1 1 0; min-width:0; }
+
+.board table.stand { font-size:clamp(14px,1.15vw,22px); }
+.board table.stand th { font-size:clamp(10px,.85vw,14px); padding:2px 6px 8px; }
+.board table.stand td { padding:clamp(4px,.5vw,9px) 6px; }
+.board table.stand td.pts { font-size:clamp(16px,1.5vw,26px); }
+.board table.stand .players { font-size:clamp(10px,.8vw,13px); line-height:1.05; }
+.board table.stand .teamline { min-width:0; }
+.board table.stand.compact td.l .teamline { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.board table.stand.compact td { padding:clamp(3px,.42vw,8px) 6px; }
+.board table.stand.compact td.l { max-width:0; width:100%; }
 .board table.stand tr.top1 { background:linear-gradient(90deg,var(--gold-soft),transparent 70%); }
 .board table.stand tr.top1 td.rank { color:var(--gold-2); font-weight:700; }
 .board .qualline td { border-bottom:2px dashed var(--gold-2); }

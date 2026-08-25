@@ -75,16 +75,25 @@ function renderRank(){
   let html='';
   poules.forEach((p,i)=>{
     const rows=STATE.standings[p.id]||[]; const color=pouleColors[i%pouleColors.length];
-    html+='<div class="card"><h2><span class="dot" style="background:'+color+'"></span>'+pName(p)+'</h2>'+standTable(rows)+'</div>';
+    html+='<div class="card"><h2><span class="dot" style="background:'+color+'"></span>'+pName(p)+'</h2>'+standSplit(rows)+'</div>';
   });
   return html||'<div class="card center muted">No teams yet.</div>';
 }
-function standTable(rows){
+// Split a long ranking into two side-by-side columns so every team stays on screen.
+function standSplit(rows){
   if(!rows.length) return '<p class="muted center">No teams yet.</p>';
-  let h='<table class="stand"><thead><tr><th></th><th class="l">Team</th><th>Pl</th><th>W</th><th>T</th><th>L</th><th>20s</th><th>Pts</th></tr></thead><tbody>';
+  if(rows.length<=12) return standTable(rows,0,false);
+  const half=Math.ceil(rows.length/2);
+  // compact (no player sub-line) so all teams fit on one screen
+  return '<div class="standwrap">'+standTable(rows.slice(0,half),0,true)+standTable(rows.slice(half),half,true)+'</div>';
+}
+function standTable(rows,start,compact){
+  start=start||0;
+  if(!rows.length) return '';
+  let h='<table class="stand'+(compact?' compact':'')+'"><thead><tr><th></th><th class="l">Team</th><th>Pl</th><th>W</th><th>T</th><th>L</th><th>20s</th><th>Pts</th></tr></thead><tbody>';
   rows.forEach((r,i)=>{ const players=[r.player1,r.player2].filter(Boolean).map(esc).join(' · ');
-    h+='<tr class="'+(i===0?'top1':'')+'"><td class="rank">'+(i+1)+'</td>'
-      +'<td class="l"><div class="team">'+esc(r.name)+'</div>'+(players?'<div class="players">'+players+'</div>':'')+'</td>'
+    h+='<tr class="'+(start+i===0?'top1':'')+'"><td class="rank">'+(start+i+1)+'</td>'
+      +'<td class="l"><div class="teamline"><span class="team">'+esc(r.name)+'</span>'+(!compact&&players?'<div class="players">'+players+'</div>':'')+'</div></td>'
       +'<td>'+r.played+'</td><td>'+r.wins+'</td><td>'+r.ties+'</td><td>'+r.losses+'</td>'
       +'<td class="mono">'+r.twenties+'</td><td class="pts">'+r.points+'</td></tr>'; });
   return h+'</tbody></table>';
