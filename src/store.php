@@ -58,11 +58,13 @@ function crok_migrate(PDO $pdo, string $driver): void {
         points_win   INTEGER DEFAULT 2,
         points_tie   INTEGER DEFAULT 1,
         current_round INTEGER DEFAULT 1,
-        advance_per_poule INTEGER DEFAULT 8,
+        advance_per_poule INTEGER DEFAULT 1,
+        wildcards    INTEGER DEFAULT 0,
         status       TEXT DEFAULT 'setup',
         created_at   INTEGER
     )$eng");
-    try { $pdo->exec("ALTER TABLE crok_event ADD COLUMN advance_per_poule INTEGER DEFAULT 8"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE crok_event ADD COLUMN advance_per_poule INTEGER DEFAULT 1"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE crok_event ADD COLUMN wildcards INTEGER DEFAULT 0"); } catch (Throwable $e) {}
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS crok_poule (
         id        $pk,

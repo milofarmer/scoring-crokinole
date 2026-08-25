@@ -48,9 +48,10 @@ $r = api($base, ['action' => 'create_event', 'name' => 'NK Crokinole', 'play_cod
 if (empty($r['ok'])) { fwrite(STDERR, "  ! create_event: " . ($r['error'] ?? '?') . " (try --fresh)\n"); exit(1); }
 echo "  · created event (code $CODE, pin $PIN)\n";
 
+$pnames = range('A', 'K'); // 11 poules of 4 teams
 api($base, ['action' => 'set_poules', 'admin_pin' => $PIN,
-    'poules' => [['name' => 'A', 'tables' => 11], ['name' => 'B', 'tables' => 11]]]);
-echo "  · poules A & B\n";
+    'poules' => array_map(fn($n) => ['name' => $n, 'tables' => 2], $pnames)]);
+echo "  · poules " . implode(', ', $pnames) . "\n";
 
 /* --- 44 team names + player pairs --------------------------------------- */
 $names = [
@@ -71,7 +72,7 @@ $fn = ['Anne','Bram','Cor','Daan','Eva','Floor','Guus','Hanna','Ivo','Jorn','Koe
 
 $lines = [];
 for ($i = 0; $i < 44; $i++) {
-    $poule = $i < 22 ? 'A' : 'B';
+    $poule = $pnames[intdiv($i, 4)]; // 4 teams per poule
     $p1 = $fn[$i % count($fn)];
     $p2 = $fn[(int)($i * 1.7 + 11) % count($fn)];
     if ($p2 === $p1) $p2 = $fn[($i + 1) % count($fn)];
@@ -110,8 +111,10 @@ for ($round = 1; $round <= $rounds; $round++) {
 
 // Show the round that is currently "live": the first unscored round, else the last.
 $current = min($rounds, $played + 1);
-api($base, ['action' => 'update_event', 'admin_pin' => $PIN, 'current_round' => $current]);
-echo "  · current round set to $current\n";
+// Finals: all 11 poule winners + the best 5 No.2's = 16-team bracket.
+api($base, ['action' => 'update_event', 'admin_pin' => $PIN,
+    'current_round' => $current, 'advance_per_poule' => 1, 'wildcards' => 5]);
+echo "  · current round set to $current · finals = 11 winners + 5 wildcards (16)\n";
 
 // Show a few team login codes (players sign in with these).
 $teams = api($base, ['action' => 'admin_state', 'admin_pin' => $PIN])['teams'] ?? [];

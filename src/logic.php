@@ -155,7 +155,9 @@ function crok_h2h_points(array $group, array $matches, int $pw, int $pt): array 
 
 /**
  * Ranked team rows for a poule.
- * Order: match points → 20's → head-to-head (onderling resultaat) → team number.
+ * All placings: points → 20's (→ team number as a stable fallback).
+ * EXCEPTION: the #1 spot only — a tie on points+20's for the lead is broken by
+ * head-to-head (onderling resultaat). Lower placings never use head-to-head.
  */
 function crok_ranked(PDO $db, array $event, ?int $pouleId = null): array {
     $standings = crok_standings($db, $event);
@@ -166,28 +168,31 @@ function crok_ranked(PDO $db, array $event, ?int $pouleId = null): array {
         $s = $standings[(int)$t['id']];
         $rows[] = $s + ['name' => $t['name'], 'player1' => $t['player1'], 'player2' => $t['player2'], 'number' => (int)$t['number'], 'poule_id' => (int)$t['poule_id']];
     }
-    // Primary sort: points, then 20's (both descending).
-    usort($rows, fn($x, $y) => [$y['points'], $y['twenties']] <=> [$x['points'], $x['twenties']]);
+    // Points → 20's → number (points & 20's descending, number ascending as a stable tiebreak).
+    usort($rows, function ($x, $y) {
+        if ($x['points'] !== $y['points']) return $y['points'] <=> $x['points'];
+        if ($x['twenties'] !== $y['twenties']) return $y['twenties'] <=> $x['twenties'];
+        return $x['number'] <=> $y['number'];
+    });
 
-    // Break remaining ties by head-to-head within each equal group, then number.
-    $matches = array_filter(crok_matches($db, (int)$event['id']), 'crok_match_scored');
-    $pw = (int)$event['points_win']; $pt = (int)$event['points_tie'];
-    $out = []; $i = 0; $n = count($rows);
-    while ($i < $n) {
-        $j = $i + 1;
-        while ($j < $n && $rows[$j]['points'] === $rows[$i]['points'] && $rows[$j]['twenties'] === $rows[$i]['twenties']) $j++;
-        $group = array_slice($rows, $i, $j - $i);
-        if (count($group) > 1) {
-            $h2h = crok_h2h_points($group, $matches, $pw, $pt);
-            usort($group, function ($x, $y) use ($h2h) {
+    // Head-to-head decides ONLY the poule winner: reorder the leading group tied on points+20's.
+    if (count($rows) > 1) {
+        $lead = [];
+        foreach ($rows as $r) {
+            if ($r['points'] === $rows[0]['points'] && $r['twenties'] === $rows[0]['twenties']) $lead[] = $r;
+            else break;
+        }
+        if (count($lead) > 1) {
+            $matches = array_filter(crok_matches($db, (int)$event['id']), 'crok_match_scored');
+            $h2h = crok_h2h_points($lead, $matches, (int)$event['points_win'], (int)$event['points_tie']);
+            usort($lead, function ($x, $y) use ($h2h) {
                 if ($h2h[$y['team_id']] !== $h2h[$x['team_id']]) return $h2h[$y['team_id']] <=> $h2h[$x['team_id']];
                 return $x['number'] <=> $y['number'];
             });
+            $rows = array_merge($lead, array_slice($rows, count($lead)));
         }
-        foreach ($group as $g) $out[] = $g;
-        $i = $j;
     }
-    return $out;
+    return $rows;
 }
 
 /** Opponents a team has already faced, from earlier rounds. */
@@ -239,23 +244,45 @@ function crok_bracket_order(int $n): array {
     return $order;
 }
 
-/** Ordered qualifiers: rank 1 of every poule, then rank 2 of every poule, … (cross-seed). */
-function crok_qualifiers(PDO $db, array $event, int $perPoule): array {
+/**
+ * Finalists: the top $perPoule of every poule (guaranteed), plus the best
+ * $wildcards teams from the next placing across all poules (e.g. the best No.2's).
+ * Runners-up are compared on points → 20's only (never head-to-head).
+ * Returned seed order: guaranteed teams first (by poule finish), then wildcards.
+ */
+function crok_qualifiers(PDO $db, array $event, int $perPoule, int $wildcards = 0): array {
     $poules = crok_poules($db, (int)$event['id']);
-    $ranked = [];
-    foreach ($poules as $p) $ranked[] = array_slice(crok_ranked($db, $event, (int)$p['id']), 0, $perPoule);
-    $seeds = [];
-    for ($i = 0; $i < $perPoule; $i++) {
-        foreach ($ranked as $r) if (isset($r[$i])) $seeds[] = $r[$i];
+    $guaranteed = []; $pool = [];
+    foreach ($poules as $p) {
+        $ranked = crok_ranked($db, $event, (int)$p['id']);
+        for ($i = 0; $i < $perPoule; $i++) {
+            if (isset($ranked[$i])) $guaranteed[] = $ranked[$i] + ['pos' => $i + 1];
+        }
+        if (isset($ranked[$perPoule])) $pool[] = $ranked[$perPoule] + ['pos' => $perPoule + 1]; // first non-qualifier
     }
-    return $seeds; // seed 1 = best of first poule, seed 2 = best of second poule, …
+    // Best wildcards among the runners-up — points → 20's only.
+    $byPts = function ($x, $y) {
+        if ($x['points'] !== $y['points']) return $y['points'] <=> $x['points'];
+        if ($x['twenties'] !== $y['twenties']) return $y['twenties'] <=> $x['twenties'];
+        return $x['number'] <=> $y['number'];
+    };
+    usort($pool, $byPts);
+    $chosen = array_slice($pool, 0, max(0, $wildcards));
+
+    $all = array_merge($guaranteed, $chosen);
+    // Seed: winners (lower pos) first, then by points → 20's.
+    usort($all, function ($x, $y) use ($byPts) {
+        if ($x['pos'] !== $y['pos']) return $x['pos'] <=> $y['pos'];
+        return $byPts($x, $y);
+    });
+    return $all;
 }
 
 /**
  * Build the first knockout round from the poule standings.
  * $perPoule teams per poule are cross-seeded into a power-of-two bracket (byes if needed).
  */
-function crok_generate_ko(PDO $db, array $event, int $perPoule, bool $force = false): array {
+function crok_generate_ko(PDO $db, array $event, int $perPoule, int $wildcards = 0, bool $force = false): array {
     $eventId = (int)$event['id'];
     $koRound = (int)$event['num_rounds'] + 1;
 
@@ -266,7 +293,7 @@ function crok_generate_ko(PDO $db, array $event, int $perPoule, bool $force = fa
         $db->prepare("DELETE FROM crok_match WHERE event_id=? AND phase='ko'")->execute([$eventId]);
     }
 
-    $seeds = crok_qualifiers($db, $event, $perPoule);
+    $seeds = crok_qualifiers($db, $event, $perPoule, $wildcards);
     if (count($seeds) < 2) throw new RuntimeException('Not enough qualified teams.');
     $M = 1; while ($M < count($seeds)) $M *= 2;         // next power of two
     $order = crok_bracket_order($M);                    // slot order of seed numbers

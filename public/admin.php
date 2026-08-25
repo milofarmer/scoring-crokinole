@@ -100,14 +100,20 @@
     </div>
 
     <div class="card">
-      <h2>Knockout (loting)</h2>
-      <p class="muted" style="font-size:13px;margin-top:-4px">After the poule rounds, take the top teams per poule into a cross-seeded bracket.</p>
+      <h2>Finals (loting)</h2>
+      <p class="muted" style="font-size:13px;margin-top:-4px">Poule winners advance, plus the best runners-up (No.2's) as wildcards, into a cross-seeded bracket.</p>
       <div class="row" style="align-items:end">
-        <label class="field" style="flex:0 0 170px"><span class="lab">Advance per poule</span>
-          <input id="koPer" class="num" type="number" min="1" value="8"></label>
-        <button class="btn ghost" id="koGen" style="flex:0 0 auto">Generate bracket</button>
+        <label class="field" style="flex:0 0 130px"><span class="lab">Top per poule</span>
+          <input id="koPer" class="num" type="number" min="1" value="1"></label>
+        <label class="field" style="flex:0 0 170px"><span class="lab">+ Wildcards (best No.2's)</span>
+          <input id="koWild" class="num" type="number" min="0" value="0"></label>
+        <div class="field" style="flex:1"><span class="lab">To the finals</span>
+          <div id="koTotal" class="mono" style="font-size:19px;padding:9px 0;color:var(--gold-2)">—</div></div>
+      </div>
+      <div class="row" style="margin-bottom:4px">
+        <button class="btn" id="koGen" style="flex:0 0 auto">Generate bracket</button>
         <button class="btn ghost" id="koRegen" style="flex:0 0 auto">Rebuild (wipe KO)</button>
-        <button class="btn" id="koNext" style="flex:0 0 auto">Generate next KO round</button>
+        <button class="btn ghost" id="koNext" style="flex:0 0 auto">Generate next round</button>
       </div>
       <div id="koRounds" class="mono muted" style="font-size:13px;margin-top:8px"></div>
     </div>
@@ -186,16 +192,27 @@ function fillRoundSelects(){
 }
 
 function renderKo(){
-  $('#koPer').value=A.event.advance_per_poule||8;
+  $('#koPer').value=A.event.advance_per_poule||1;
+  $('#koWild').value=A.event.wildcards||0;
+  koTotal();
   const ks=A.ko_rounds||[];
   $('#koRounds').innerHTML = ks.length
     ? 'Bracket: '+ks.map(k=>esc(k.label)+' ('+k.count+')').join(' → ')
-    : 'No knockout generated yet.';
+    : 'No bracket generated yet.';
 }
+function koTotal(){
+  const poules=(A.poules||[]).length;
+  const per=Math.max(1,+$('#koPer').value||1), wild=Math.max(0,+$('#koWild').value||0);
+  const total=poules*per+wild;
+  let pow=1; while(pow<total) pow*=2;
+  const byes = total>1 ? pow-total : 0;
+  $('#koTotal').textContent = poules?(total+' teams  ('+poules+'×'+per+(wild?' + '+wild:'')+')'+(byes?'  · '+byes+' byes':'')):'add poules first';
+}
+$('#koPer').oninput=koTotal; $('#koWild').oninput=koTotal;
 $('#koGen').onclick=()=>koGen(false);
-$('#koRegen').onclick=()=>{ if(confirm('Rebuild the knockout bracket? This wipes all KO matches & scores.')) koGen(true); };
+$('#koRegen').onclick=()=>{ if(confirm('Rebuild the finals bracket? This wipes all KO matches & scores.')) koGen(true); };
 async function koGen(force){
-  const r=await api('generate_ko',{per_poule:+$('#koPer').value,force:force?1:0});
+  const r=await api('generate_ko',{per_poule:+$('#koPer').value,wildcards:+$('#koWild').value,force:force?1:0});
   if(r.ok){ toast(r.label+' drawn ('+r.created+' matches)'); curRound=r.round; refresh(); } else toast(r.error,true);
 }
 $('#koNext').onclick=async ()=>{

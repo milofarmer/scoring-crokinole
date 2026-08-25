@@ -301,7 +301,9 @@ try {
                 'id' => $eventId, 'name' => $ev['name'], 'play_code' => $ev['play_code'],
                 'num_rounds' => (int)$ev['num_rounds'], 'points_win' => (int)$ev['points_win'],
                 'points_tie' => (int)$ev['points_tie'], 'current_round' => (int)$ev['current_round'],
-                'advance_per_poule' => (int)($ev['advance_per_poule'] ?? 8),
+                'advance_per_poule' => (int)($ev['advance_per_poule'] ?? 1),
+                'wildcards' => (int)($ev['wildcards'] ?? 0),
+                'poule_count' => count(crok_poules($db, $eventId)),
                 'status' => $ev['status'],
             ],
             'poules' => array_map(fn($p) => ['id' => (int)$p['id'], 'name' => $p['name'], 'tables' => (int)$p['tables']], crok_poules($db, $eventId)),
@@ -345,7 +347,8 @@ try {
         $fields = [];
         $vals = [];
         foreach (['name' => 'str', 'play_code' => 'str', 'num_rounds' => 'int', 'points_win' => 'int',
-                  'points_tie' => 'int', 'current_round' => 'int', 'advance_per_poule' => 'int', 'status' => 'str'] as $k => $type) {
+                  'points_tie' => 'int', 'current_round' => 'int', 'advance_per_poule' => 'int',
+                  'wildcards' => 'int', 'status' => 'str'] as $k => $type) {
             if (array_key_exists($k, $in)) {
                 $fields[] = "$k=?";
                 $vals[] = $type === 'int' ? (int)$in[$k] : trim((string)$in[$k]);
@@ -460,13 +463,14 @@ try {
 
     case 'generate_ko': {
         $ev = crok_require_admin($db, $in);
-        $per = (int)($in['per_poule'] ?? $ev['advance_per_poule'] ?? 8);
+        $per = (int)($in['per_poule'] ?? $ev['advance_per_poule'] ?? 1);
+        $wild = (int)($in['wildcards'] ?? $ev['wildcards'] ?? 0);
         $force = !empty($in['force']);
-        try { $res = crok_generate_ko($db, $ev, $per, $force); }
+        try { $res = crok_generate_ko($db, $ev, $per, $wild, $force); }
         catch (RuntimeException $e) { crok_fail($e->getMessage(), 409); }
-        // Remember the setting and make the KO round live.
-        $db->prepare("UPDATE crok_event SET advance_per_poule=?, current_round=? WHERE id=?")
-           ->execute([$per, $res['round'], (int)$ev['id']]);
+        // Remember the settings and make the KO round live.
+        $db->prepare("UPDATE crok_event SET advance_per_poule=?, wildcards=?, current_round=? WHERE id=?")
+           ->execute([$per, $wild, $res['round'], (int)$ev['id']]);
         crok_json(['ok' => true] + $res);
     }
 

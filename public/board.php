@@ -62,27 +62,33 @@ function buildRoundBtns(){
 
 function render(){
   const g=$('#grid');
-  g.className = VIEW==='rank' ? 'board-grid' : '';
-  if(VIEW==='rank') g.innerHTML = renderRank();
+  g.className='board-grid';
+  const P = (STATE.poules&&STATE.poules.length) ? STATE.poules.length : 2;
+  let cols = Math.min(P, 6);
+  if(VIEW==='schema' && SCHED && schemaRound>SCHED.event.num_rounds) cols=1; // KO round = one wide card
+  if(VIEW==='tables' && STATE.event.is_knockout) cols=1;
+  g.style.setProperty('--cols', cols);
+  if(VIEW==='rank') g.innerHTML = renderRank(cols);
   else if(VIEW==='tables') g.innerHTML = renderTables();
   else g.innerHTML = renderSchema();
   g.classList.remove('fade'); void g.offsetWidth; g.classList.add('fade');
 }
 
 /* ---- ranking ---- */
-function renderRank(){
+function renderRank(cols){
+  const narrow = cols>=3; // narrow columns → compact single-line rows
   const poules = STATE.poules.length?STATE.poules:[{id:0,name:''}];
   let html='';
   poules.forEach((p,i)=>{
     const rows=STATE.standings[p.id]||[]; const color=pouleColors[i%pouleColors.length];
-    html+='<div class="card"><h2><span class="dot" style="background:'+color+'"></span>'+pName(p)+'</h2>'+standSplit(rows)+'</div>';
+    html+='<div class="card"><h2><span class="dot" style="background:'+color+'"></span>'+pName(p)+'</h2>'+standSplit(rows,narrow)+'</div>';
   });
   return html||'<div class="card center muted">No teams yet.</div>';
 }
 // Split a long ranking into two side-by-side columns so every team stays on screen.
-function standSplit(rows){
+function standSplit(rows,narrow){
   if(!rows.length) return '<p class="muted center">No teams yet.</p>';
-  if(rows.length<=12) return standTable(rows,0,false);
+  if(rows.length<=12) return standTable(rows,0,!!narrow);
   const half=Math.ceil(rows.length/2);
   // compact (no player sub-line) so all teams fit on one screen
   return '<div class="standwrap">'+standTable(rows.slice(0,half),0,true)+standTable(rows.slice(half),half,true)+'</div>';
