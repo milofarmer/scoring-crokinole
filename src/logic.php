@@ -279,12 +279,13 @@ function crok_qualifiers(PDO $db, array $event, int $perPoule, int $wildcards = 
 }
 
 /**
- * Build the first knockout round from the poule standings.
- * $perPoule teams per poule are cross-seeded into a power-of-two bracket (byes if needed).
+ * Build the FULL knockout skeleton from the poule standings: round 1 with the
+ * seeded teams, then every later round + a bronze final as empty matches that
+ * winners advance into. Cross-seeded into a power-of-two bracket (byes if needed).
  */
 function crok_generate_ko(PDO $db, array $event, int $perPoule, int $wildcards = 0, bool $force = false): array {
     $eventId = (int)$event['id'];
-    $koRound = (int)$event['num_rounds'] + 1;
+    $nr = (int)$event['num_rounds'];
 
     $st = $db->prepare("SELECT COUNT(*) c FROM crok_match WHERE event_id=? AND phase='ko'");
     $st->execute([$eventId]);
@@ -297,52 +298,81 @@ function crok_generate_ko(PDO $db, array $event, int $perPoule, int $wildcards =
     if (count($seeds) < 2) throw new RuntimeException('Not enough qualified teams.');
     $M = 1; while ($M < count($seeds)) $M *= 2;         // next power of two
     $order = crok_bracket_order($M);                    // slot order of seed numbers
+    $rounds = (int)round(log($M, 2));                   // e.g. 16 → 4 rounds
 
     $ins = $db->prepare("INSERT INTO crok_match (event_id, poule_id, round, table_no, team_a_id, team_b_id, phase, bracket, status)
                          VALUES (?,0,?,?,?,?, 'ko', ?, 'pending')");
-    $label = crok_ko_label($M / 2);
-    $created = 0; $table = 1;
+
+    // Round 1 — seeded teams.
+    $r1 = $nr + 1; $table = 1;
     for ($i = 0; $i < $M; $i += 2) {
-        $sa = $order[$i] - 1; $sb = $order[$i + 1] - 1;   // seed indices (0-based)
-        $ta = $seeds[$sa]['team_id'] ?? null;
-        $tb = $seeds[$sb]['team_id'] ?? null;
-        // If a slot is empty it's a bye; keep the real team as A.
-        if ($ta === null && $tb !== null) { $ta = $tb; $tb = null; }
-        if ($ta === null && $tb === null) continue;
-        $ins->execute([$eventId, $koRound, $table++, $ta, $tb, $label]);
-        $created++;
+        $ta = $seeds[$order[$i] - 1]['team_id'] ?? null;
+        $tb = $seeds[$order[$i + 1] - 1]['team_id'] ?? null;
+        if ($ta === null && $tb !== null) { $ta = $tb; $tb = null; } // bye keeps the real team as A
+        $ins->execute([$eventId, $r1, $table++, $ta, $tb, crok_ko_label($M / 2)]);
     }
-    return ['created' => $created, 'round' => $koRound, 'label' => $label, 'bracket_size' => $M];
+    // Later rounds — empty matches, to be filled by advancing winners.
+    for ($k = 2; $k <= $rounds; $k++) {
+        $count = (int)($M / pow(2, $k));
+        $label = crok_ko_label($count);
+        for ($t = 1; $t <= $count; $t++) $ins->execute([$eventId, $nr + $k, $t, null, null, $label]);
+    }
+    // Bronze final — same round number as the final, distinguished by its label.
+    $ins->execute([$eventId, $nr + $rounds, 2, null, null, 'Bronze final']);
+
+    crok_advance_bracket($db, $event); // resolve byes immediately
+    return ['created' => (int)($M / 2), 'round' => $r1, 'label' => crok_ko_label($M / 2), 'bracket_size' => $M];
 }
 
-/** Pair the winners of the latest completed KO round into the next round. */
-function crok_generate_next_ko(PDO $db, array $event): array {
+/** Non-winning team of a decided match (null for byes / undecided). */
+function crok_match_loser(array $m): ?int {
+    $a = (int)$m['team_a_id']; $b = (int)($m['team_b_id'] ?? 0);
+    if (!$b) return null;
+    $w = crok_match_winner($m);
+    if ($w === null) return null;
+    return $w === $a ? $b : $a;
+}
+
+/** Propagate KO winners forward into their next-round slots (and SF losers into the bronze final). */
+function crok_advance_bracket(PDO $db, array $event): void {
     $eventId = (int)$event['id'];
-    $st = $db->query("SELECT MAX(round) m FROM crok_match WHERE event_id=" . (int)$eventId . " AND phase='ko'");
-    $last = (int)($st->fetch()['m'] ?? 0);
-    if (!$last) throw new RuntimeException('No knockout bracket yet.');
+    $all = array_filter(crok_matches($db, $eventId), fn($m) => ($m['phase'] ?? '') === 'ko');
+    if (!$all) return;
+    $byRound = [];
+    foreach ($all as $m) $byRound[(int)$m['round']][] = $m;
+    $roundNums = array_keys($byRound); sort($roundNums);
+    $finalRound = max($roundNums);
+    $winnersOf = function ($r) use ($byRound) {
+        $ms = array_values(array_filter($byRound[$r] ?? [], fn($m) => ($m['bracket'] ?? '') !== 'Bronze final'));
+        usort($ms, fn($x, $y) => (int)$x['table_no'] <=> (int)$y['table_no']);
+        return $ms;
+    };
+    $setSlot = function ($matchId, $slot, $team) use ($db) {
+        $col = $slot === 0 ? 'team_a_id' : 'team_b_id';
+        $db->prepare("UPDATE crok_match SET $col=? WHERE id=?")->execute([$team, $matchId]);
+    };
 
-    $cur = crok_matches($db, $eventId, $last);
-    if (count($cur) <= 1) throw new RuntimeException('The final is already set.');
-    $winners = [];
-    foreach ($cur as $m) {
-        $w = crok_match_winner($m);
-        if ($w === null) throw new RuntimeException('Finish all matches in the current round first.');
-        $winners[] = $w;
+    foreach ($roundNums as $r) {
+        if ($r >= $finalRound) break;
+        $cur = $winnersOf($r);
+        $next = $winnersOf($r + 1);
+        foreach ($cur as $i => $m) {
+            $w = crok_match_winner($m);
+            if ($w === null) continue;
+            $target = $next[intdiv($i, 2)] ?? null;
+            if ($target) $setSlot((int)$target['id'], $i % 2, $w);
+        }
     }
-    $nextRound = $last + 1;
-    $chk = $db->prepare("SELECT COUNT(*) c FROM crok_match WHERE event_id=? AND round=?");
-    $chk->execute([$eventId, $nextRound]);
-    if ((int)$chk->fetch()['c'] > 0) throw new RuntimeException('Next round already exists.');
-
-    $label = crok_ko_label(count($winners) / 2);
-    $ins = $db->prepare("INSERT INTO crok_match (event_id, poule_id, round, table_no, team_a_id, team_b_id, phase, bracket, status)
-                         VALUES (?,0,?,?,?,?, 'ko', ?, 'pending')");
-    $t = 1;
-    for ($i = 0; $i < count($winners); $i += 2) {
-        $ins->execute([$eventId, $nextRound, $t++, $winners[$i], $winners[$i + 1] ?? null, $label]);
+    // Bronze final: the two semi-final losers.
+    $bronze = null;
+    foreach ($byRound[$finalRound] ?? [] as $m) if (($m['bracket'] ?? '') === 'Bronze final') $bronze = $m;
+    if ($bronze && $finalRound - 1 >= $roundNums[0]) {
+        $sf = $winnersOf($finalRound - 1);
+        foreach ($sf as $i => $m) {
+            $l = crok_match_loser($m);
+            if ($l !== null) $setSlot((int)$bronze['id'], $i % 2, $l);
+        }
     }
-    return ['created' => (int)(count($winners) / 2), 'round' => $nextRound, 'label' => $label];
 }
 
 /**

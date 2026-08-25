@@ -179,6 +179,7 @@ try {
                 'phase' => $m['phase'] ?? 'poule', 'bracket' => $m['bracket'] ?? null,
                 'match_code' => $m['match_code'] ?? null,
                 'shootout_winner' => $m['shootout_winner'] === null ? null : (int)$m['shootout_winner'],
+                'win' => (function () use ($m) { $w = crok_match_winner($m); return $w === null ? null : ($w === (int)$m['team_a_id'] ? 'a' : 'b'); })(),
                 'status' => $m['status'], 'scored' => crok_match_scored($m),
             ];
         }
@@ -260,6 +261,7 @@ try {
             $up = $db->prepare("UPDATE crok_match SET points_a=?, points_b=?, twenties_a=?, twenties_b=?, shootout_winner=?, status=?, entered_at=?, entered_by=? WHERE id=?");
             $up->execute([$pa, $pb, $ta, $tb, $so, $status, time(), $by, $matchId]);
         }
+        if (($m['phase'] ?? '') === 'ko') crok_advance_bracket($db, $ev); // propagate winners
         crok_json(['ok' => true, 'status' => $status]);
     }
 
@@ -475,11 +477,10 @@ try {
     }
 
     case 'generate_next_ko': {
+        // Full bracket is created up front and winners advance automatically; this just refreshes.
         $ev = crok_require_admin($db, $in);
-        try { $res = crok_generate_next_ko($db, $ev); }
-        catch (RuntimeException $e) { crok_fail($e->getMessage(), 409); }
-        $db->prepare("UPDATE crok_event SET current_round=? WHERE id=?")->execute([$res['round'], (int)$ev['id']]);
-        crok_json(['ok' => true] + $res);
+        crok_advance_bracket($db, $ev);
+        crok_json(['ok' => true, 'label' => 'Bracket refreshed']);
     }
 
     case 'set_match': {
@@ -500,6 +501,7 @@ try {
             $vals[] = $id;
             $db->prepare("UPDATE crok_match SET " . implode(',', $fields) . " WHERE id=?")->execute($vals);
         }
+        crok_advance_bracket($db, $ev); // keep the bracket consistent after a manual edit
         crok_json(['ok' => true]);
     }
 

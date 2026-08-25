@@ -113,7 +113,7 @@
       <div class="row" style="margin-bottom:4px">
         <button class="btn" id="koGen" style="flex:0 0 auto">Generate bracket</button>
         <button class="btn ghost" id="koRegen" style="flex:0 0 auto">Rebuild (wipe KO)</button>
-        <button class="btn ghost" id="koNext" style="flex:0 0 auto">Generate next round</button>
+        <button class="btn ghost" id="koNext" style="flex:0 0 auto">Refresh bracket</button>
       </div>
       <div id="koRounds" class="mono muted" style="font-size:13px;margin-top:8px"></div>
     </div>

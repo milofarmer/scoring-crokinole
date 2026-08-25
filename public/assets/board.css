@@ -10,6 +10,14 @@
 /* One column per poule (2 poules → 2 cols, 4 poules → 4 cols) to fill 16:9 / 4K. */
 .board-grid { display:grid; gap:clamp(12px,1.4vw,26px); grid-template-columns:repeat(var(--cols,2),1fr); align-items:start; }
 @media (max-width:900px) { .board-grid { grid-template-columns:1fr; } }
+
+/* collapsible header — frees vertical space on the big screen */
+.board.min .pagenav { display:none; }
+.board.min .topbar { padding:2px 0 8px; margin-bottom:10px; }
+.board.min .topbar .mark { width:clamp(28px,2.2vw,38px); height:clamp(28px,2.2vw,38px); }
+.board.min .topbar .eyebrow { display:none; }
+.board.min .topbar h1 { font-size:clamp(16px,1.9vw,28px); }
+.board.min .bracket2 { height:86vh; }
 .board .pagenav { padding-top:0; margin-bottom:10px; }
 .board .card { padding:clamp(14px,1.4vw,24px); margin:0; }
 .board .card h2 { font-size:clamp(14px,1.4vw,22px); display:flex; align-items:center; gap:10px; }
@@ -20,14 +28,16 @@
 .standwrap > table { flex:1 1 0; min-width:0; }
 
 .board table.stand { font-size:clamp(14px,1.15vw,22px); }
-.board table.stand th { font-size:clamp(10px,.85vw,14px); padding:2px 6px 8px; }
+.board table.stand th { font-size:clamp(10px,.8vw,14px); padding:2px 6px 8px; color:var(--muted); }
 .board table.stand td { padding:clamp(4px,.5vw,9px) 6px; }
-.board table.stand td.pts { font-size:clamp(16px,1.5vw,26px); }
+/* Team name gets all remaining width and is the visual priority. */
+.board table.stand td.l { width:100%; max-width:0; }
+.board table.stand .team { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  font-weight:600; font-size:clamp(15px,1.25vw,24px); }
+.board table.stand td.tw { white-space:nowrap; color:var(--muted); }
+.board table.stand td.pts { font-size:clamp(20px,1.7vw,30px); }
 .board table.stand .players { font-size:clamp(10px,.8vw,13px); line-height:1.05; }
-.board table.stand .teamline { min-width:0; }
-.board table.stand.compact td.l .teamline { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .board table.stand.compact td { padding:clamp(3px,.42vw,8px) 6px; }
-.board table.stand.compact td.l { max-width:0; width:100%; }
 .board table.stand tr.top1 { background:linear-gradient(90deg,var(--gold-soft),transparent 70%); }
 .board table.stand tr.top1 td.rank { color:var(--gold-2); font-weight:700; }
 .board .qualline td { border-bottom:2px dashed var(--gold-2); }
@@ -44,6 +54,47 @@
 .viewnav button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
 .viewnav .rounds { margin-left:auto; display:flex; gap:6px; }
 .viewnav .rounds button.on { background:var(--gold); color:#3a2c10; border-color:var(--gold-2); }
+
+/* knockout: World Cup bracket tree — teams on both sides, final in the centre */
+.ko-wrap { display:block; }
+.bracket2 { --cw:clamp(8px,.9vw,20px); display:flex; align-items:stretch; justify-content:center;
+  gap:clamp(6px,1.2vw,24px); width:100%; height:78vh; }
+.bracket2 .half { flex:1 1 0; display:flex; align-items:stretch; min-width:0; }
+.bracket2 .half.left { justify-content:flex-end; direction:rtl; }
+.bracket2 .half.right { justify-content:flex-start; }
+.bracket2 .center { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.bracket2 .center .clabel { font-family:var(--mono); font-size:clamp(9px,.8vw,13px); text-transform:uppercase;
+  letter-spacing:.1em; color:var(--muted); margin-bottom:6px; }
+
+.bracket2 .tnode { display:flex; align-items:center; }
+.bracket2 .tkids { display:flex; flex-direction:column; justify-content:space-around; align-self:stretch; }
+.bracket2 .half.left .bm { direction:ltr; }
+.bracket2 .bm { flex:0 0 auto; background:var(--panel); border:1px solid var(--line); border-radius:9px;
+  overflow:hidden; box-shadow:var(--shadow); position:relative; width:clamp(96px,8.5vw,190px); }
+.bracket2 .bm.big { width:clamp(120px,11vw,230px); border-color:var(--gold-2); box-shadow:0 0 0 2px var(--gold-soft); }
+.bracket2 .bmt { display:flex; align-items:center; gap:6px; padding:clamp(4px,.55vw,10px) clamp(6px,.7vw,11px);
+  font-size:clamp(10px,.9vw,17px); color:var(--muted); }
+.bracket2 .bmt+.bmt { border-top:1px solid var(--line); }
+.bracket2 .bmt .dot { width:8px; height:8px; border-radius:50%; flex:none; }
+.bracket2 .bmt b { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+.bracket2 .bmt .sc { font-family:var(--mono); font-weight:700; }
+.bracket2 .bmt .so { font-family:var(--mono); font-size:.66em; background:var(--gold-soft); color:#6a5326; border-radius:4px; padding:0 4px; }
+.bracket2 .bmt.win { color:var(--ink); }
+.bracket2 .bmt.win .sc { color:var(--green); }
+
+/* connector lines */
+.bracket2 { --wire:var(--muted-2); }
+.bracket2 .tnode.haskids > .tkids { position:relative; margin-inline-start:calc(var(--cw)*2); }
+.bracket2 .tnode.haskids > .bm::after { content:''; position:absolute; inset-inline-start:100%; top:50%;
+  width:calc(var(--cw)*2 + 1px); height:2px; background:var(--wire); }
+.bracket2 .tnode.haskids > .tkids::before { content:''; position:absolute; inset-inline-start:calc(var(--cw)*-1);
+  top:25%; bottom:25%; border-inline-start:2px solid var(--wire); }
+.bracket2 .tkids > .tnode > .bm::before { content:''; position:absolute; inset-inline-end:100%; top:50%;
+  width:calc(var(--cw) + 1px); height:2px; background:var(--wire); }
+
+.bracket2 .champ { text-align:center; margin-top:12px; font-family:var(--mono); }
+.bracket2 .champ .lab { font-size:clamp(9px,.8vw,12px); letter-spacing:.14em; color:var(--muted); }
+.bracket2 .champ .who { font-size:clamp(15px,1.4vw,26px); font-weight:700; color:#6a5326; }
 
 /* per-table grid */
 .tablegrid { display:grid; gap:clamp(10px,1.1vw,18px); grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr)); }
