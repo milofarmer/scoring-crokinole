@@ -45,12 +45,10 @@
       <div class="tennis-legend">Top row = points · bottom = 20's · total points decides the match</div>
 
       <div id="banner" class="result-banner tie">Enter the points per set</div>
-      <div id="shootout" class="hidden" style="margin-top:8px">
-        <div class="t2lab" style="text-align:center;margin-bottom:8px">Equal points · shoot-out winner?</div>
-        <div class="row">
-          <button class="btn ghost" id="soA" type="button">Team A</button>
-          <button class="btn ghost" id="soB" type="button">Team B</button>
-        </div>
+      <div id="shootout" class="hidden" style="margin-top:10px">
+        <div class="t2lab" style="text-align:center;margin-bottom:8px">Level after 4 sets · shoot-out (best of 3)</div>
+        <div id="soGrid" class="sogrid"></div>
+        <div id="soResult" class="mono center" style="font-size:13px;margin-top:8px;color:var(--muted);height:16px"></div>
       </div>
       <button class="btn wide" id="confirmBtn" style="margin-top:12px" disabled>Confirm result</button>
       <div id="saveState" class="mono muted center" style="font-size:12px;height:16px;margin-top:6px"></div>
@@ -79,7 +77,7 @@
 <script>
 const $ = s => document.querySelector(s);
 let STATE=null, team=null, myMatch=null, poll=null, dirty=false, saveTimer=null;
-let sets=[], shootout=null, renderedMatchId=null;
+let sets=[], soShots=[null,null,null], renderedMatchId=null;
 let mode='team', matchCode='';
 const ls={get:k=>localStorage.getItem('crok_'+k)||'',set:(k,v)=>localStorage.setItem('crok_'+k,v),del:k=>localStorage.removeItem('crok_'+k)};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -186,8 +184,9 @@ function renderPlay(){
     sets = (myMatch.sets&&myMatch.sets.length)
       ? [0,1,2,3].map(i=>{ const s=myMatch.sets[i]||{}; return {pa:s.pa==null?'':s.pa, pb:s.pb==null?'':s.pb, ta:s.ta||0, tb:s.tb||0}; })
       : blankSets();
-    shootout = myMatch.shootout_winner||null;
-    buildTennis();
+    const sw0 = myMatch.shootout_winner||null;
+    soShots = sw0 ? [ sw0===myMatch.team_a.id?'a':'b', sw0===myMatch.team_a.id?'a':'b', null ] : [null,null,null];
+    buildTennis(); buildShootout();
     renderedMatchId=myMatch.id;
   }
   updateBanner();
@@ -227,9 +226,10 @@ function updateBanner(){
     $('#totA').classList.toggle('win', filled===4&&pa>pb); $('#totB').classList.toggle('win', filled===4&&pb>pa); }
   const needSO = isKo() && filled===4 && pa===pb;
   $('#shootout').classList.toggle('hidden', !needSO);
-  if(needSO){ $('#soA').textContent=A.name; $('#soB').textContent=B.name;
-    $('#soA').style.borderColor=shootout===A.id?'var(--red)':''; $('#soB').style.borderColor=shootout===B.id?'var(--blue)':'';
-    $('#soA').classList.toggle('on',shootout===A.id); $('#soB').classList.toggle('on',shootout===B.id); }
+  const sw = soWinner();
+  if(needSO && $('#soResult')){ $('#soResult').textContent = sw.id
+    ? ((sw.id===A.id?esc(A.name):esc(B.name))+' win the shoot-out '+Math.max(sw.a,sw.b)+'–'+Math.min(sw.a,sw.b))
+    : 'Best of 3 — tap the winner of each shot'; }
   const bn=$('#banner'); const sc=pa+'–'+pb;
   if(filled===0){ bn.className='result-banner tie'; bn.textContent='Enter the points per set'; }
   else if(filled<4){ const left='  ·  '+(4-filled)+' set'+(4-filled>1?'s':'')+' left';
@@ -238,15 +238,27 @@ function updateBanner(){
     else{bn.className='result-banner tie'; bn.textContent='Level '+sc+left;} }
   else { if(pa>pb){bn.className='result-banner win'; bn.textContent=esc(A.name)+' win '+sc;}
     else if(pb>pa){bn.className='result-banner win'; bn.textContent=esc(B.name)+' win '+sc;}
-    else if(needSO&&shootout){bn.className='result-banner win'; bn.textContent=esc(shootout===A.id?A.name:B.name)+' win '+sc+' (shoot-out)';}
-    else if(needSO){bn.className='result-banner tie'; bn.textContent='Equal '+sc+' — pick shoot-out winner';}
+    else if(needSO&&sw.id){bn.className='result-banner win'; bn.textContent=esc(sw.id===A.id?A.name:B.name)+' win '+sc+' (shoot-out)';}
+    else if(needSO){bn.className='result-banner tie'; bn.textContent='Equal '+sc+' — shoot-out (best of 3)';}
     else{bn.className='result-banner tie'; bn.textContent='Draw '+sc;} }
-  const canConfirm = filled===4 && (!needSO || !!shootout);
+  const canConfirm = filled===4 && (!needSO || !!sw.id);
   $('#confirmBtn').disabled = !canConfirm;
   $('#confirmBtn').textContent = myMatch.status==='entered' ? 'Update result' : 'Confirm result';
 }
-$('#soA').onclick=()=>{ shootout=myMatch.team_a.id; updateBanner(); scheduleSave(); };
-$('#soB').onclick=()=>{ shootout=myMatch.team_b.id; updateBanner(); scheduleSave(); };
+function soWinner(){ let a=0,b=0; soShots.forEach(s=>{ if(s==='a')a++; else if(s==='b')b++; });
+  return { id: a>=2?myMatch.team_a.id : (b>=2?myMatch.team_b.id : null), a, b }; }
+function buildShootout(){
+  if(!myMatch || !myMatch.team_b) return;
+  const A=myMatch.team_a.name, B=myMatch.team_b.name;
+  let h='<div class="sohead"><span></span><span>'+esc(A)+'</span><span>'+esc(B)+'</span></div>';
+  for(let i=0;i<3;i++) h+='<div class="sn">Shot '+(i+1)+'</div>'+soCell(i,'a')+soCell(i,'b');
+  const g=$('#soGrid'); g.innerHTML=h;
+  g.querySelectorAll('.socell').forEach(c=>c.onclick=()=>{
+    const i=+c.dataset.i; soShots[i]=(soShots[i]===c.dataset.v?null:c.dataset.v);
+    buildShootout(); updateBanner(); scheduleSave();
+  });
+}
+function soCell(i,v){ const sel=soShots[i]===v?(' sel-'+v):''; return '<div class="socell'+sel+'" data-i="'+i+'" data-v="'+v+'">'+(soShots[i]===v?'✓':'')+'</div>'; }
 $('#confirmBtn').onclick=()=>save(true);
 
 function scheduleSave(){ dirty=true; $('#saveState').textContent='Saving…'; clearTimeout(saveTimer); saveTimer=setTimeout(()=>save(false),700); }
@@ -254,7 +266,7 @@ async function save(complete){
   if(!myMatch) return;
   const {pa,pb,filled}=totals();
   const needSO = isKo() && filled===4 && pa===pb;
-  const so = needSO ? shootout : null;
+  const so = needSO ? soWinner().id : null;
   const isFinal = !!complete && filled===4 && (!needSO || !!so);
   const payload = sets.map(s=>({pa:s.pa===''?'':+s.pa, pb:s.pb===''?'':+s.pb, ta:+s.ta||0, tb:+s.tb||0}));
   const authCode = mode==='match' ? matchCode : ls.get('team_code');
