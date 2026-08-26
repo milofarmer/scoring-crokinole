@@ -19,7 +19,7 @@ HTML;
 
 /** Minimal page switcher shared by all three screens. */
 function crok_nav(string $active): string {
-    $items = ['index.php' => 'Score', 'board.php' => 'Board', 'admin.php' => 'Organizer'];
+    $items = ['index.php' => 'Score', 'board.php' => 'Board', 'season.php' => 'Season', 'admin.php' => 'Organizer'];
     $h = '<nav class="pagenav">';
     foreach ($items as $href => $label) {
         $cur = $active === $href ? ' aria-current="page"' : '';

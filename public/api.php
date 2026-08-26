@@ -9,6 +9,7 @@
 
 define('CROK', 1);
 require_once __DIR__ . '/../src/logic.php';
+require_once __DIR__ . '/../src/season.php';
 
 $db = crok_pdo();
 
@@ -156,6 +157,96 @@ try {
             'id' => (int)$t['id'], 'name' => $t['name'], 'number' => (int)$t['number'],
             'poule_id' => (int)$t['poule_id'], 'player1' => $t['player1'], 'player2' => $t['player2'],
         ]]);
+    }
+
+    /* ---------- season ranking (NCA Field-Weighted Points) ---------- */
+
+    case 'season_state': {
+        // Public leaderboard + the list of counted nights.
+        $season = trim((string)($in['season'] ?? '')) ?: null;
+        $seasons = array_map(fn($r) => $r['season'], $db->query("SELECT DISTINCT season FROM crok_snight WHERE season IS NOT NULL AND season<>'' ORDER BY season DESC")->fetchAll());
+        $nights = $db->query("SELECT n.*, (SELECT COUNT(*) FROM crok_sresult r WHERE r.snight_id=n.id) players FROM crok_snight n ORDER BY date DESC, id DESC")->fetchAll();
+        crok_json([
+            'ok' => true,
+            'seasons' => $seasons,
+            'standings' => crok_season_standings($db, $season),
+            'nights' => array_map(fn($n) => [
+                'id' => (int)$n['id'], 'season' => $n['season'], 'name' => $n['name'], 'date' => $n['date'],
+                'host' => $n['host'], 'type' => $n['type'], 'field_size' => (int)$n['field_size'],
+                'fsi' => (float)$n['fsi'], 'fdi' => (float)$n['fdi'], 'players' => (int)$n['players'],
+            ], $nights),
+        ]);
+    }
+
+    case 'season_data': { // full data for the organizer view
+        crok_require_admin($db, $in);
+        crok_json([
+            'ok' => true,
+            'players' => $db->query("SELECT * FROM crok_player ORDER BY name")->fetchAll(),
+            'nights' => $db->query("SELECT * FROM crok_snight ORDER BY date DESC, id DESC")->fetchAll(),
+            'results' => $db->query("SELECT r.*, p.name player_name FROM crok_sresult r JOIN crok_player p ON p.id=r.player_id ORDER BY r.snight_id, r.position")->fetchAll(),
+        ]);
+    }
+
+    case 'season_add_player': {
+        crok_require_admin($db, $in);
+        $name = trim((string)($in['name'] ?? ''));
+        if ($name === '') crok_fail('Player name?');
+        $db->prepare("INSERT INTO crok_player (name, created_at) VALUES (?,?)")->execute([$name, time()]);
+        crok_json(['ok' => true, 'id' => (int)$db->lastInsertId()]);
+    }
+
+    case 'season_save_night': {
+        crok_require_admin($db, $in);
+        $id = (int)($in['id'] ?? 0);
+        $fields = [
+            'season' => trim((string)($in['season'] ?? 'S17')),
+            'name' => trim((string)($in['name'] ?? '')),
+            'date' => trim((string)($in['date'] ?? '')),
+            'host' => trim((string)($in['host'] ?? '')),
+            'type' => ($in['type'] ?? 'singles') === 'doubles' ? 'doubles' : 'singles',
+            'field_size' => max(1, (int)($in['field_size'] ?? 1)),
+            'fsi' => (float)($in['fsi'] ?? 1.0),
+            'fdi' => (float)($in['fdi'] ?? 1.0),
+        ];
+        if ($id) {
+            $set = implode(',', array_map(fn($k) => "$k=?", array_keys($fields)));
+            $db->prepare("UPDATE crok_snight SET $set WHERE id=?")->execute([...array_values($fields), $id]);
+        } else {
+            $cols = implode(',', array_keys($fields)) . ',created_at';
+            $ph = implode(',', array_fill(0, count($fields), '?')) . ',?';
+            $db->prepare("INSERT INTO crok_snight ($cols) VALUES ($ph)")->execute([...array_values($fields), time()]);
+            $id = (int)$db->lastInsertId();
+        }
+        crok_recompute_night($db, $id); // keep stored FWP in sync with FSI/FDI/size
+        crok_json(['ok' => true, 'id' => $id]);
+    }
+
+    case 'season_add_result': {
+        crok_require_admin($db, $in);
+        $nid = (int)($in['snight_id'] ?? 0);
+        $pid = (int)($in['player_id'] ?? 0);
+        $pos = max(1, (int)($in['position'] ?? 1));
+        $n = $db->prepare("SELECT * FROM crok_snight WHERE id=?"); $n->execute([$nid]); $night = $n->fetch();
+        if (!$night || !$pid) crok_fail('Pick a night and a player.');
+        $fwp = crok_fwp($pos, (int)$night['field_size'], (float)$night['fsi'], (float)$night['fdi']);
+        $db->prepare("INSERT INTO crok_sresult (snight_id, player_id, position, fwp, created_at) VALUES (?,?,?,?,?)")
+           ->execute([$nid, $pid, $pos, $fwp, time()]);
+        crok_json(['ok' => true, 'fwp' => $fwp]);
+    }
+
+    case 'season_delete_result': {
+        crok_require_admin($db, $in);
+        $db->prepare("DELETE FROM crok_sresult WHERE id=?")->execute([(int)($in['id'] ?? 0)]);
+        crok_json(['ok' => true]);
+    }
+
+    case 'season_delete_night': {
+        crok_require_admin($db, $in);
+        $id = (int)($in['id'] ?? 0);
+        $db->prepare("DELETE FROM crok_sresult WHERE snight_id=?")->execute([$id]);
+        $db->prepare("DELETE FROM crok_snight WHERE id=?")->execute([$id]);
+        crok_json(['ok' => true]);
     }
 
     case 'schedule': {

@@ -88,6 +88,33 @@ function crok_migrate(PDO $pdo, string $driver): void {
     // Additive migration for tables created before login_code existed.
     try { $pdo->exec("ALTER TABLE crok_team ADD COLUMN login_code TEXT"); } catch (Throwable $e) {}
 
+    // ---- Season ranking (NCA Field-Weighted Points) — independent of tournaments ----
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crok_player (
+        id         $pk,
+        name       TEXT,
+        created_at INTEGER
+    )$eng");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crok_snight (
+        id         $pk,
+        season     TEXT,
+        name       TEXT,
+        date       TEXT,
+        host       TEXT,
+        type       TEXT DEFAULT 'singles',
+        field_size INTEGER,
+        fsi        REAL,
+        fdi        REAL,
+        created_at INTEGER
+    )$eng");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS crok_sresult (
+        id         $pk,
+        snight_id  INTEGER,
+        player_id  INTEGER,
+        position   INTEGER,
+        fwp        REAL,
+        created_at INTEGER
+    )$eng");
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS crok_match (
         id         $pk,
         event_id   INTEGER,
