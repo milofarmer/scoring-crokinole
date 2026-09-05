@@ -2,6 +2,15 @@
 /** Shared HTML head + crokinole board logo. Include only. */
 if (!defined('CROK')) { http_response_code(403); exit('forbidden'); }
 
+// The stylesheets carry a version in their URL and can be cached hard, but the
+// page pointing at them must not be: a browser holding yesterday's HTML keeps
+// asking for yesterday's stylesheet, so the screen in the hall quietly stays out
+// of date after an update. This has to run before anything is printed, which is
+// why it lives here rather than in crok_head().
+if (!headers_sent()) {
+    header('Cache-Control: no-store, must-revalidate');
+}
+
 /**
  * Stamp each stylesheet with its file time. Without this a browser keeps showing
  * the previous styling after an update — which at a venue looks like a broken
