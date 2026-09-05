@@ -1,70 +1,115 @@
-# Crokinole Tournament — live scoring
+# Crokinole tournament — live scoring
 
-A self-contained scoring app for a **2v2 fixed-team** crokinole tournament
-(built for the NK format: poules of 11 tables, 4 preliminary rounds, NCA-style
-match points). Players enter results on their phones, the standings update live
-on a big screen.
+Scoring for a crokinole tournament, singles or 2v2 fixed teams. It runs on a
+laptop in the hall: players enter results on their phones over the venue's wifi,
+the standings go up on a projector, and nothing depends on the internet.
 
-Modelled visually on [croki.nl](https://croki.nl): warm cream, tan/gold accent,
-Space Mono + Space Grotesk, the crokinole-board mark.
+Built for the NK format — poules, four preliminary rounds, then a knockout — but
+the field size, the number of rounds and how many teams go through are all set
+per tournament.
 
 ## Scoring
 
-- **Win = 2**, **tie = 1**, **loss = 0** match points (configurable).
-- Per match each side enters its **game score** and its number of **20's**.
-- Standings rank by **match points → total 20's → point differential**.
+A match is **four sets**. Each set is won by whoever scored more **in that set**
+and is worth **2**, or **1 each** when the set is level. So a match hands out
+eight points and a side can take anything from 0 to 8.
 
-## Three screens
+This is worth stating plainly because the obvious reading is wrong: **the match
+is not decided by adding up the points scored.** A team that loses one set 5-80
+and wins the other three 21-20 has scored 68 against 140, and wins the match 6-2.
+Points scored decide a set and nothing else.
+
+20's are recorded per set but never decide a set. In the poule table they
+separate teams level on points, and head-to-head then settles first place. A
+level knockout match goes to a shoot-out, first to two, and to sudden death if
+that is still level.
+
+## Screens
 
 | Page | Who | What |
-|------|-----|------|
-| `index.php` | Players (phone) | Pick your table for the current round, enter both teams' score + 20's. Needs the **table code**. |
-| `board.php` | Big screen | Live poule standings + round, auto-refreshing every ~2.5s. |
-| `admin.php` | Organizer | Create the event, add teams into poules, auto-generate the Swiss draw per round, advance rounds, correct scores. Needs the **organizer PIN**. |
+|---|---|---|
+| `/` | Players, on a phone | Their match, one set at a time. Sign in with a team code, or open a single match with the code from the board. |
+| `/board.php` | The projector | Poule standings, the knockout bracket, and what is on each table. Cycles by itself. |
+| `/admin.php` | The organiser | Create the tournament, add teams, draw rounds, draw the knockout, correct anything. Needs the PIN. |
+| `/season.php` | Anyone | The season ranking, on NCA Field-Weighted Points. |
+| `/api-docs.php` | Integrators | The full API reference, with a Try it panel that calls this laptop. |
 
-Live updates use short polling — phones POST, the board polls. No websockets,
-so it runs on any plain PHP host.
+The board carries a QR code players scan to reach the scoring page. Give the
+laptop a name on the network with `tools/announce-name.sh` and the board shows
+`croki.local:8085` instead of an IP nobody can remember.
 
-## Run with Docker
+## Running it
+
+**On a Mac, for an actual event**, use the app: `npm run dist` builds a `.dmg`
+into `dist/`. It runs in the menu bar, starts the server, and puts the board and
+the organiser screen a click away. Nobody needs Node or Docker installed.
+
+The build is not signed yet, so the first open needs
+System Settings → Privacy & Security → Open Anyway.
+
+**From the source:**
+
+```bash
+npm install
+npm start                 # http://localhost:8085
+```
+
+**With Docker:**
 
 ```bash
 docker compose up --build
 ```
 
-Then open **http://localhost:8085** (phone entry), `/board.php`, `/admin.php`.
-Data is SQLite in the `crok_data` volume, so it survives restarts.
+The database is SQLite, kept outside the app: in `~/Library/Application Support`
+for the Mac app, in the `crok_data` volume under Docker, and at `CROK_DB_PATH`
+otherwise.
 
-First run: open `/admin.php` → **Create tournament** (set a table code + organizer
-PIN) → add poules (A, B…) → add the 44 teams → **Generate draw** for round 1 →
-**Set as current round**. Players go to the root URL, board goes on the projector.
+## Setting up a tournament
 
-## Run without Docker (local dev)
+Open `/admin.php`, create the tournament with an organiser PIN, add the poules,
+add the teams, then draw round one. Players go to the address on the board.
+
+## The API
+
+Everything the pages do is a documented HTTP call, so a scoring machine can do
+it too. `/api-docs.php` is the reference and `public/openapi.json` is the
+machine-readable contract.
+
+Two calls matter for automatic scoring: ask which match is at which table, then
+send results back.
 
 ```bash
-php -S localhost:8085 -t public
+curl -H 'X-Api-Key: <event key>' http://croki.local:8085/api/ingest_tables
+
+curl -X POST http://croki.local:8085/api/ingest_score \
+  -H 'Content-Type: application/json' -H 'X-Api-Key: <event key>' \
+  -d '{"table":7,"sets":[{"pa":21,"pb":20,"ta":1,"tb":0}],"complete":false,"source":"table-cam-2"}'
 ```
 
-Uses SQLite at `crok/data/crok.sqlite` (created automatically).
-
-## Optional: MySQL instead of SQLite
-
-Set `CROK_DB_DRIVER=mysql` plus `CROK_DB_HOST/NAME/USER/PASS` (see
-`docker-compose.yml`). The same schema is created automatically.
+`table` is the table **in the hall**, one match per round, so a camera above it
+needs to know nothing about poules. An automatic result goes through the same
+path as one typed on a phone, so the jury can overrule either.
 
 ## Layout
 
 ```
-crok/
-  public/           # web root (served)
-    index.php       # phone score entry
-    board.php       # big-screen standings
-    admin.php       # organizer control panel
-    api.php         # JSON API
-    assets/         # style.css, board.css
-  src/              # includes (not web-served)
-    store.php       # PDO + schema
-    logic.php       # standings + Swiss draw
-    brand.php       # head + board logo
-  Dockerfile
-  docker-compose.yml
+src/
+  api/         routes, scoring, draws, the JSON shapes
+  core/        the rules: scoring, standings, Swiss draw, bracket, classification
+  services/    database, page rendering, the season ranking
+  config/      settings from the environment
+  server.ts    entry point
+public/        the pages and their assets, plus openapi.json
+electron/      the Mac menu bar app
+tools/         announce a name on the network, seed test data, migrations
+test/          82 tests, run with node --test
 ```
+
+## Checks
+
+```bash
+npm run check           # lint, typecheck, tests
+npm run typecheck:app   # the Electron shell
+```
+
+No build step: Node 24 runs the TypeScript directly.

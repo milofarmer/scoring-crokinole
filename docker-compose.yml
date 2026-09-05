@@ -1,13 +1,16 @@
-# Crokinole tournament — one container, SQLite persisted in a named volume.
-#   docker compose up --build   →   http://localhost:8085
+# Crokinole tournament — one container, the database in a named volume.
+#   docker compose up --build   ->   http://localhost:8085
+#
+# For an actual event, use the Mac app instead: it runs this same server without
+# anyone having to install Docker first.
 services:
   crok:
     build: .
     ports:
-      - "8085:80"          # host 8085 (8080 is used by smt-tennis-playout)
+      - "8085:8085"        # 8080 is used by smt-tennis-playout
     environment:
-      CROK_DB_DRIVER: sqlite            # or "mysql" to use the block below
-      CROK_SQLITE_PATH: /var/www/html/data/crok.sqlite
+      CROK_DB_PATH: /data/crok.sqlite
+      PORT: 8085
       # The address players see on the board, instead of an IP nobody can
       # remember and that changes with every router. Announce it with
       #   tools/announce-name.sh
@@ -15,19 +18,11 @@ services:
       # numeric address underneath, because Android below version 12 cannot
       # resolve .local names.
       CROK_HOSTNAME: "croki.local:8085"
-      # --- optional MySQL backend ---
-      # CROK_DB_DRIVER: mysql
-      # CROK_DB_HOST: db
-      # CROK_DB_NAME: crok
-      # CROK_DB_USER: crok
-      # CROK_DB_PASS: crok
     volumes:
-      # Live-edit: source is bind-mounted, so changes show on reload (no rebuild).
-      - ./public:/var/www/html/public
-      - ./src:/var/www/html/src
-      # Maintenance scripts an organiser may need to run against a live event.
-      - ./tools:/var/www/html/tools
-      - crok_data:/var/www/html/data
+      # Bind-mounted so an edit shows on reload without a rebuild.
+      - ./src:/app/src
+      - ./public:/app/public
+      - crok_data:/data
     restart: unless-stopped
 
 volumes:

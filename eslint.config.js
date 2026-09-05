@@ -9,7 +9,7 @@ export default [
   js.configs.recommended,
   { ignores: ['node_modules/**', 'data/**', 'dist/**', 'release/**'] },
   {
-    files: ['src/**/*.ts', 'test/**/*.ts', 'electron/**/*.ts'],
+    files: ['src/**/*.ts', 'test/**/*.ts', 'electron/**/*.ts', 'tools/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
       ecmaVersion: 2023,
