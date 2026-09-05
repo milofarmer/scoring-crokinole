@@ -19,9 +19,14 @@
 export function describeUpdateError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
 
-  // By far the usual case: the repository has no release to compare against.
+  /* A 404 here has more than one cause and they are indistinguishable from
+     outside: no release published, or a private repository this copy cannot
+     read, or a repository that has moved. Saying "no release yet" sounded
+     helpful and was wrong the first time it mattered, so say what is actually
+     known and name both likely causes. */
   if (/\b404\b/.test(raw) || raw.includes('releases.atom')) {
-    return 'No release has been published yet, so there is nothing to compare this copy against.';
+    return 'The list of releases could not be read. Either none has been published, '
+      + 'or the repository is private and this copy has no access to it.';
   }
   if (/ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNREFUSED|network/i.test(raw)) {
     return 'The update server could not be reached.';

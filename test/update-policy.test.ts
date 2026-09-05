@@ -90,15 +90,17 @@ Headers: {
 ]
 }`;
 
-test('a missing release is explained, not dumped', () => {
+test('a 404 is explained without guessing at one cause, and not dumped', () => {
   const shown = describeUpdateError(new Error(REAL_404));
-  assert.equal(
-    shown,
-    'No release has been published yet, so there is nothing to compare this copy against.',
-  );
+  // A 404 covers "no release yet", "private repository" and "moved", and they
+  // cannot be told apart from here. The first version of this claimed the first
+  // one and was wrong as soon as a release existed behind a private repository.
+  assert.match(shown, /could not be read/);
+  assert.match(shown, /private/);
+  assert.ok(!/^No release has been published yet/.test(shown), 'do not assert one cause of a 404');
   assert.ok(!shown.includes('set-cookie'), 'a dialog must never put cookies on screen');
   assert.ok(!shown.includes('_gh_sess'), 'a session cookie must never reach the screen');
-  assert.ok(shown.length < 120, 'one readable line, not a page');
+  assert.ok(shown.length < 220, 'a couple of readable lines, not a page');
 });
 
 test('a network failure says so plainly', () => {
