@@ -107,6 +107,9 @@
           <input id="koPer" class="num" type="number" min="1" value="1"></label>
         <label class="field" style="flex:0 0 170px"><span class="lab">+ Wildcards (best No.2's)</span>
           <input id="koWild" class="num" type="number" min="0" value="0"></label>
+        <label class="field" style="flex:0 0 auto"><span class="lab">Bronze final</span>
+          <label style="display:flex;align-items:center;gap:8px;padding:11px 0;cursor:pointer;white-space:nowrap">
+            <input type="checkbox" id="koBronze" style="width:auto" checked> play for 3rd</label></label>
         <div class="field" style="flex:1"><span class="lab">To the finals</span>
           <div id="koTotal" class="mono" style="font-size:19px;padding:9px 0;color:var(--gold-2)">—</div></div>
       </div>
@@ -257,6 +260,7 @@ function fillRoundSelects(){
 function renderKo(){
   $('#koPer').value=A.event.advance_per_poule||1;
   $('#koWild').value=A.event.wildcards||0;
+  $('#koBronze').checked = (A.event.bronze_final ?? 1) === 1;
   koTotal();
   const ks=A.ko_rounds||[];
   $('#koRounds').innerHTML = ks.length
@@ -275,7 +279,8 @@ $('#koPer').oninput=koTotal; $('#koWild').oninput=koTotal;
 $('#koGen').onclick=()=>koGen(false);
 $('#koRegen').onclick=()=>{ if(confirm('Rebuild the finals bracket? This wipes all KO matches & scores.')) koGen(true); };
 async function koGen(force){
-  const r=await api('generate_ko',{per_poule:+$('#koPer').value,wildcards:+$('#koWild').value,force:force?1:0});
+  const r=await api('generate_ko',{per_poule:+$('#koPer').value,wildcards:+$('#koWild').value,
+    bronze_final:$('#koBronze').checked?1:0, force:force?1:0});
   if(r.ok){ toast(r.label+' drawn ('+r.created+' matches)'); curRound=r.round; refresh(); } else toast(r.error,true);
 }
 $('#koNext').onclick=async ()=>{

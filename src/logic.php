@@ -324,7 +324,7 @@ function crok_qualifiers(PDO $db, array $event, int $perPoule, int $wildcards = 
  * seeded teams, then every later round + a bronze final as empty matches that
  * winners advance into. Cross-seeded into a power-of-two bracket (byes if needed).
  */
-function crok_generate_ko(PDO $db, array $event, int $perPoule, int $wildcards = 0, bool $force = false): array {
+function crok_generate_ko(PDO $db, array $event, int $perPoule, int $wildcards = 0, bool $force = false, bool $bronze = true): array {
     $eventId = (int)$event['id'];
     $nr = (int)$event['num_rounds'];
 
@@ -358,8 +358,11 @@ function crok_generate_ko(PDO $db, array $event, int $perPoule, int $wildcards =
         $label = crok_ko_label($count);
         for ($t = 1; $t <= $count; $t++) $ins->execute([$eventId, $nr + $k, $t, null, null, $label]);
     }
-    // Bronze final — same round number as the final, distinguished by its label.
-    $ins->execute([$eventId, $nr + $rounds, 2, null, null, 'Bronze final']);
+    // Bronze final (optional) — same round number as the final, told apart by its label.
+    // Only makes sense once there are semi-finals to lose.
+    if ($bronze && $rounds >= 2) {
+        $ins->execute([$eventId, $nr + $rounds, 2, null, null, 'Bronze final']);
+    }
 
     crok_advance_bracket($db, $event); // resolve byes immediately
     return ['created' => (int)($M / 2), 'round' => $r1, 'label' => crok_ko_label($M / 2), 'bracket_size' => $M];

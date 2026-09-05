@@ -457,6 +457,7 @@ try {
                 'points_tie' => (int)$ev['points_tie'], 'current_round' => (int)$ev['current_round'],
                 'advance_per_poule' => (int)($ev['advance_per_poule'] ?? 1),
                 'wildcards' => (int)($ev['wildcards'] ?? 0),
+                'bronze_final' => (int)($ev['bronze_final'] ?? 1),
                 'api_key' => crok_ensure_api_key($db, $ev),
                 'poule_count' => count(crok_poules($db, $eventId)),
                 'status' => $ev['status'],
@@ -503,7 +504,7 @@ try {
         $vals = [];
         foreach (['name' => 'str', 'play_code' => 'str', 'num_rounds' => 'int', 'points_win' => 'int',
                   'points_tie' => 'int', 'current_round' => 'int', 'advance_per_poule' => 'int',
-                  'wildcards' => 'int', 'status' => 'str'] as $k => $type) {
+                  'wildcards' => 'int', 'bronze_final' => 'int', 'status' => 'str'] as $k => $type) {
             if (array_key_exists($k, $in)) {
                 $fields[] = "$k=?";
                 $vals[] = $type === 'int' ? (int)$in[$k] : trim((string)$in[$k]);
@@ -620,12 +621,15 @@ try {
         $ev = crok_require_admin($db, $in);
         $per = (int)($in['per_poule'] ?? $ev['advance_per_poule'] ?? 1);
         $wild = (int)($in['wildcards'] ?? $ev['wildcards'] ?? 0);
+        $bronze = array_key_exists('bronze_final', $in)
+            ? !empty($in['bronze_final'])
+            : (int)($ev['bronze_final'] ?? 1) === 1;
         $force = !empty($in['force']);
-        try { $res = crok_generate_ko($db, $ev, $per, $wild, $force); }
+        try { $res = crok_generate_ko($db, $ev, $per, $wild, $force, $bronze); }
         catch (RuntimeException $e) { crok_fail($e->getMessage(), 409); }
         // Remember the settings and make the KO round live.
-        $db->prepare("UPDATE crok_event SET advance_per_poule=?, wildcards=?, current_round=? WHERE id=?")
-           ->execute([$per, $wild, $res['round'], (int)$ev['id']]);
+        $db->prepare("UPDATE crok_event SET advance_per_poule=?, wildcards=?, bronze_final=?, current_round=? WHERE id=?")
+           ->execute([$per, $wild, $bronze ? 1 : 0, $res['round'], (int)$ev['id']]);
         crok_json(['ok' => true] + $res);
     }
 
