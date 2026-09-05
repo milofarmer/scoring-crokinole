@@ -1,0 +1,75 @@
+<!doctype html><html lang="en"><head>{{head}}</head>
+<body>
+<div class="wrap" style="max-width:900px">
+  {{nav}}
+  <div class="topbar">
+    {{mark:44}}
+    <div class="titles"><div class="eyebrow">Season ranking · Field-Weighted Points</div><h1 id="evName">Crokinole</h1></div>
+    <div class="spacer"></div>
+    <select id="seasonSel" style="width:auto"></select>
+  </div>
+
+  <div class="card">
+    <h2>Standings — best 5 results</h2>
+    <div id="standings"></div>
+  </div>
+
+  <div class="card">
+    <h2>Counted nights</h2>
+    <div id="nights"></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+async function api(a,extra){ const r=await fetch('api.php?action='+a+(extra||'')); return r.json(); }
+let season='';
+
+async function load(){
+  const s=await api('season_state', season?('&season='+encodeURIComponent(season)):'');
+  if(!s.ok) return;
+  // season selector
+  const sel=$('#seasonSel');
+  if(!sel.dataset.built){
+    sel.innerHTML='<option value="">All seasons</option>'+s.seasons.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
+    sel.dataset.built='1'; sel.value=season;
+    sel.onchange=()=>{ season=sel.value; load(); };
+  }
+  renderStandings(s.standings);
+  renderNights(s.nights);
+}
+
+function renderStandings(rows){
+  if(!rows.length){ $('#standings').innerHTML='<p class="muted center">No results recorded yet.</p>'; return; }
+  let h='<table class="stand"><thead><tr><th></th><th class="l">Player</th><th>Played</th><th>Singles</th><th>Doubles</th><th>Total</th></tr></thead><tbody>';
+  rows.forEach((r,i)=>{
+    h+='<tr class="'+(i===0?'top1':'')+'"><td class="rank">'+(i+1)+'</td>'
+      +'<td class="l team">'+esc(r.name)+'</td>'
+      +'<td class="mono muted">'+r.counting+' / '+Math.min(5,r.played)+(r.played>5?' ('+r.played+')':'')+'</td>'
+      +'<td class="mono">'+r.singles.toFixed(1)+'</td>'
+      +'<td class="mono">'+r.doubles.toFixed(1)+'</td>'
+      +'<td class="pts">'+r.total.toFixed(1)+'</td></tr>';
+  });
+  $('#standings').innerHTML=h+'</tbody></table>';
+}
+
+function renderNights(nights){
+  if(!nights.length){ $('#nights').innerHTML='<p class="muted center">No nights yet.</p>'; return; }
+  let h='<table class="stand"><thead><tr><th class="l">Date</th><th class="l">Event</th><th class="l">Host</th><th>Type</th><th>Field</th><th>FSI</th><th>FDI</th><th>1st</th></tr></thead><tbody>';
+  nights.forEach(n=>{
+    // top prize preview = 50*FSI (1st place)
+    const first=(50*n.fsi).toFixed(1);
+    h+='<tr><td class="l mono muted">'+esc(n.date||'—')+'</td>'
+      +'<td class="l team">'+esc(n.name||'—')+'</td>'
+      +'<td class="l muted">'+esc(n.host||'')+'</td>'
+      +'<td><span class="pill '+(n.type==='doubles'?'b':'a')+'">'+esc(n.type)+'</span></td>'
+      +'<td class="mono">'+n.field_size+'</td><td class="mono">'+(+n.fsi).toFixed(2)+'</td><td class="mono">'+(+n.fdi).toFixed(2)+'</td>'
+      +'<td class="mono">'+first+'</td></tr>';
+  });
+  $('#nights').innerHTML=h+'</tbody></table>';
+}
+
+load();
+</script>
+</body></html>

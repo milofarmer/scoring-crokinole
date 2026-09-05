@@ -1,7 +1,7 @@
 import type { Match, Team } from '../src/types/index.ts';
 
 export function makeTeam(id: number, pouleId: number, teamNumber = id, name = `Team ${id}`): Team {
-  return { id, number: teamNumber, name, player1: '', player2: '', pouleId };
+  return { id, number: teamNumber, name, player1: '', player2: '', pouleId, loginCode: '' };
 }
 
 /** A drawn, unplayed poule match; override only what the test cares about. */
@@ -10,6 +10,7 @@ export function makeMatch(over: Partial<Match> & { id: number }): Match {
     pouleId: 1,
     round: 1,
     tableNo: 1,
+    physTable: 1,
     teamAId: null,
     teamBId: null,
     pointsA: null,
@@ -18,6 +19,7 @@ export function makeMatch(over: Partial<Match> & { id: number }): Match {
     twentiesB: 0,
     phase: 'poule',
     bracket: null,
+    matchCode: null,
     shootoutWinner: null,
     sets: null,
     status: 'pending',

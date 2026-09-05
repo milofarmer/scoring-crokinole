@@ -8,6 +8,9 @@ import { loadConfig } from './config/index.ts';
 import { openDatabase } from './services/db.ts';
 import { createTournamentStore } from './services/tournament-store.ts';
 import { createRouter } from './api/routes.ts';
+import { createPageRenderer, pageNameFor } from './services/pages.ts';
+import { createSeasonStore } from './services/season-store.ts';
+import { createSeasonRouter, seasonActionHandlers } from './api/season-routes.ts';
 
 /** Addresses a phone on the same network can actually reach. */
 export function lanAddresses(): string[] {
@@ -24,21 +27,100 @@ export function createApp(): express.Express {
   const config = loadConfig();
   const db = openDatabase(config.databasePath);
   const store = createTournamentStore(db);
+  const pages = createPageRenderer({ publicDir: config.publicDir });
+  const seasons = createSeasonStore(db);
 
   const app = express();
+  app.disable('x-powered-by');
   app.use(express.json({ limit: '256kb' }));
-  app.use('/api', createRouter({ config, store }));
-  app.use(express.static(config.publicDir));
+  app.use(express.urlencoded({ extended: false }));
+
+  const context = { config, store };
+  const api = createRouter(context);
+  const season = createSeasonRouter(context, seasons);
+  const seasonActions = seasonActionHandlers(context, seasons);
+
+  /**
+   * Every call is one action, and there are two ways to name it. /api/state is
+   * the form to use. api.php?action=state is what the pages and anything that
+   * integrated earlier already send, so it is rewritten onto the same routes
+   * rather than maintained twice.
+   *
+   * The action comes from the query string only. Taking it from the body would
+   * let a request be routed as one call while claiming to be another.
+   */
+  app.all(/^\/api\.php$/, (req, res, next) => {
+    const action = typeof req.query.action === 'string' ? req.query.action : 'state';
+    if (!/^[a-z_][a-z0-9_]*$/i.test(action)) {
+      res.status(404).json({ ok: false, error: `Unknown action: ${action}` });
+      return;
+    }
+    // The season ranking is a separate router, so send its actions there.
+    const seasonHandler = Object.hasOwn(seasonActions, action) ? seasonActions[action] : undefined;
+    if (seasonHandler !== undefined) {
+      seasonHandler(req, res);
+      return;
+    }
+    req.url = `/${action}`;
+    api(req, res, next);
+  });
+
+  app.use('/api', season);
+  app.use('/api', api);
+
+  /**
+   * Pages are templates: the shared head, nav and logo are filled in per request
+   * so a changed stylesheet is picked up without a restart. This has to come
+   * before the static handler, or the raw template is served with its
+   * placeholders showing.
+   */
+  app.get(/.*/, (req, res, next) => {
+    const name = pageNameFor(req.path);
+    if (name === null) return next();
+    try {
+      const page = pages.renderPage(name);
+      res.set(page.headers);
+      return res.send(page.html);
+    } catch {
+      return next();
+    }
+  });
+
+  app.use(express.static(config.publicDir, { index: false }));
+
+  // Anything else under /api is a call that does not exist, and should say so in
+  // JSON rather than falling through to a page.
+  app.use('/api', (_req, res) => res.status(404).json({ ok: false, error: 'Unknown action.' }));
+
   return app;
 }
 
 const config = loadConfig();
 const app = createApp();
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   const urls = lanAddresses().map((address) => `http://${address}:${config.port}`);
   process.stdout.write(`Crokinole tournament running on port ${config.port}\n`);
   process.stdout.write(`  On this machine: http://localhost:${config.port}\n`);
   for (const url of urls) process.stdout.write(`  For phones:      ${url}\n`);
   process.stdout.write(`  Data file:       ${config.databasePath}\n`);
+});
+
+/**
+ * A busy port used to print "running on port N" and then exit silently, which
+ * looks from the outside exactly like the app starting and then vanishing.
+ * Say what happened instead.
+ */
+server.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EADDRINUSE') {
+    process.stderr.write(
+      `Port ${config.port} is already in use, so the tournament could not start.\n` +
+        '  Something else is on that port: another copy of this app, or Docker.\n' +
+        '  Stop it, or start this one with a different PORT.\n',
+    );
+  } else {
+    process.stderr.write(`The tournament server could not start: ${error.message}\n`);
+  }
+  process.exitCode = 1;
+  server.close();
 });

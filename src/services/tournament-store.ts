@@ -3,7 +3,7 @@
  * domain objects; SQL and column names stop here.
  */
 import type { Db } from './db.ts';
-import { asRow, num, str, strOrNull, toMatch, toPoule, toTeam } from './rows.ts';
+import { asRow, num, numOrNull, str, strOrNull, toMatch, toPoule, toTeam } from './rows.ts';
 import type { EventConfig, Match, Poule, SetScore, Team } from '../types/index.ts';
 
 /** An event as stored, including the codes that must never reach a public page. */
@@ -106,6 +106,200 @@ export function createTournamentStore(db: Db) {
       return row === undefined ? null : toTeam(row);
     },
 
+    teamById(eventId: number, teamId: number): Team | null {
+      const row = db.prepare('SELECT * FROM crok_team WHERE id = ? AND event_id = ?').get(teamId, eventId);
+      return row === undefined ? null : toTeam(row);
+    },
+
+    /** The one match on that table in the hall this round, if it has been numbered. */
+    matchByPhysicalTable(eventId: number, round: number, table: number): Match[] {
+      return db
+        .prepare('SELECT * FROM crok_match WHERE event_id = ? AND round = ? AND phys_table = ?')
+        .all(eventId, round, table)
+        .map(toMatch);
+    },
+
+    /* ---- setting a tournament up ---- */
+
+    createEvent(input: {
+      readonly name: string;
+      readonly adminPin: string;
+      readonly playCode: string;
+      readonly discipline: 'singles' | 'doubles';
+      readonly numRounds: number;
+    }): number {
+      db.prepare(
+        `INSERT INTO crok_event (name, play_code, admin_pin, discipline, num_rounds,
+                                 current_round, status, created_at)
+         VALUES (?, ?, ?, ?, ?, 1, 'setup', ?)`,
+      ).run(
+        input.name,
+        input.playCode,
+        input.adminPin,
+        input.discipline,
+        input.numRounds,
+        Math.floor(Date.now() / 1000),
+      );
+      const row = db.prepare('SELECT last_insert_rowid() AS id').get();
+      return num(asRow(row).id, 'event.id');
+    },
+
+    /**
+     * Change only the settings that were sent. Anything absent keeps its value,
+     * so a screen that edits one field cannot blank the rest.
+     */
+    updateEvent(eventId: number, changes: {
+      readonly name?: string;
+      readonly playCode?: string;
+      readonly numRounds?: number;
+      readonly currentRound?: number;
+      readonly advancePerPoule?: number;
+      readonly wildcards?: number;
+      readonly bronzeFinal?: boolean;
+      readonly discipline?: 'singles' | 'doubles';
+      readonly status?: string;
+    }): void {
+      const columns: Record<string, string> = {
+        name: 'name',
+        playCode: 'play_code',
+        numRounds: 'num_rounds',
+        currentRound: 'current_round',
+        advancePerPoule: 'advance_per_poule',
+        wildcards: 'wildcards',
+        discipline: 'discipline',
+        status: 'status',
+      };
+      const sets: string[] = [];
+      const values: (string | number)[] = [];
+
+      for (const [key, column] of Object.entries(columns)) {
+        const value = Reflect.get(changes, key);
+        if (typeof value === 'string' || typeof value === 'number') {
+          sets.push(`${column} = ?`);
+          values.push(value);
+        }
+      }
+      if (changes.bronzeFinal !== undefined) {
+        sets.push('bronze_final = ?');
+        values.push(changes.bronzeFinal ? 1 : 0);
+      }
+      if (sets.length === 0) return;
+
+      values.push(eventId);
+      db.prepare(`UPDATE crok_event SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+    },
+
+    /** Replace the poules wholesale. Teams keep their place where the poule survives. */
+    setPoules(eventId: number, poules: readonly { readonly name: string; readonly tables: number }[]): void {
+      db.prepare('DELETE FROM crok_poule WHERE event_id = ?').run(eventId);
+      const insert = db.prepare('INSERT INTO crok_poule (event_id, name, tables, sort) VALUES (?, ?, ?, ?)');
+      poules.forEach((poule, index) => insert.run(eventId, poule.name, poule.tables, index));
+    },
+
+    /** Next free team number, so numbering stays stable as teams come and go. */
+    nextTeamNumber(eventId: number): number {
+      const row = db.prepare('SELECT COALESCE(MAX(number), 0) AS highest FROM crok_team WHERE event_id = ?').get(eventId);
+      return num(asRow(row).highest, 'team.number') + 1;
+    },
+
+    addTeam(input: {
+      readonly eventId: number;
+      readonly name: string;
+      readonly player1: string;
+      readonly player2: string;
+      readonly pouleId: number;
+      readonly number: number;
+      readonly loginCode: string;
+    }): number {
+      db.prepare(
+        `INSERT INTO crok_team (event_id, poule_id, number, name, player1, player2, login_code, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.eventId,
+        input.pouleId,
+        input.number,
+        input.name,
+        input.player1,
+        input.player2,
+        input.loginCode,
+        Math.floor(Date.now() / 1000),
+      );
+      const row = db.prepare('SELECT last_insert_rowid() AS id').get();
+      return num(asRow(row).id, 'team.id');
+    },
+
+    updateTeam(eventId: number, teamId: number, changes: {
+      readonly name?: string;
+      readonly player1?: string;
+      readonly player2?: string;
+      readonly pouleId?: number;
+    }): void {
+      const columns: Record<string, string> = {
+        name: 'name',
+        player1: 'player1',
+        player2: 'player2',
+        pouleId: 'poule_id',
+      };
+      const sets: string[] = [];
+      const values: (string | number)[] = [];
+      for (const [key, column] of Object.entries(columns)) {
+        const value = Reflect.get(changes, key);
+        if (typeof value === 'string' || typeof value === 'number') {
+          sets.push(`${column} = ?`);
+          values.push(value);
+        }
+      }
+      if (sets.length === 0) return;
+      values.push(teamId, eventId);
+      db.prepare(`UPDATE crok_team SET ${sets.join(', ')} WHERE id = ? AND event_id = ?`).run(...values);
+    },
+
+    /** Remove a team and any match it was drawn into, so no match points at nobody. */
+    deleteTeam(eventId: number, teamId: number): void {
+      db.prepare('DELETE FROM crok_match WHERE event_id = ? AND (team_a_id = ? OR team_b_id = ?)')
+        .run(eventId, teamId, teamId);
+      db.prepare('DELETE FROM crok_team WHERE id = ? AND event_id = ?').run(teamId, eventId);
+    },
+
+    /** Login codes are what a team signs in with, so they must not collide. */
+    takenLoginCodes(eventId: number): Set<string> {
+      const taken = new Set<string>();
+      for (const row of db.prepare('SELECT login_code FROM crok_team WHERE event_id = ?').all(eventId)) {
+        const code = strOrNull(asRow(row).login_code, 'team.login_code');
+        if (code !== null) taken.add(code.toUpperCase());
+      }
+      return taken;
+    },
+
+    /**
+     * Number the tables in the hall for one round: straight through, one match
+     * per table. A bye gets none, because nobody sits at a table for one.
+     */
+    assignPhysicalTables(eventId: number, round: number): void {
+      const rows = db
+        .prepare('SELECT id, team_b_id FROM crok_match WHERE event_id = ? AND round = ? ORDER BY poule_id, table_no, id')
+        .all(eventId, round);
+      const update = db.prepare('UPDATE crok_match SET phys_table = ? WHERE id = ?');
+      let table = 1;
+      for (const row of rows) {
+        const record = asRow(row);
+        const teamB = numOrNull(record.team_b_id, 'match.team_b_id');
+        const isBye = teamB === null || teamB === 0;
+        update.run(isBye ? null : table++, num(record.id, 'match.id'));
+      }
+    },
+
+    /** Number any round that has none, the way match codes are backfilled. */
+    ensurePhysicalTables(eventId: number): void {
+      const rows = db
+        .prepare(
+          `SELECT DISTINCT round FROM crok_match
+            WHERE event_id = ? AND phys_table IS NULL AND team_b_id IS NOT NULL AND team_b_id <> 0`,
+        )
+        .all(eventId);
+      for (const row of rows) store.assignPhysicalTables(eventId, num(asRow(row).round, 'match.round'));
+    },
+
     /** Give every match a code, so a board can always be joined. Safe to re-run. */
     ensureMatchCodes(eventId: number): void {
       const missing = db
@@ -157,6 +351,11 @@ export function createTournamentStore(db: Db) {
         input.enteredBy,
         input.matchId,
       );
+    },
+
+    /** Lock or unlock a result. Confirmed means a phone can no longer change it. */
+    setMatchStatus(matchId: number, status: string): void {
+      db.prepare('UPDATE crok_match SET status = ? WHERE id = ?').run(status, matchId);
     },
 
     /** Fill a knockout slot once the feeding match has a winner. */

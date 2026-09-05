@@ -22,6 +22,7 @@ const SCHEMA = [
      current_round INTEGER DEFAULT 1,
      advance_per_poule INTEGER DEFAULT 1,
      wildcards INTEGER DEFAULT 0,
+     bronze_final INTEGER DEFAULT 1,
      status TEXT DEFAULT 'setup',
      created_at INTEGER
    )`,
@@ -36,7 +37,8 @@ const SCHEMA = [
    )`,
   `CREATE TABLE IF NOT EXISTS crok_match (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
-     event_id INTEGER, poule_id INTEGER, round INTEGER, table_no INTEGER,
+     event_id INTEGER, poule_id INTEGER, round INTEGER,
+     table_no INTEGER, phys_table INTEGER,
      team_a_id INTEGER, team_b_id INTEGER,
      points_a INTEGER, points_b INTEGER,
      twenties_a INTEGER DEFAULT 0, twenties_b INTEGER DEFAULT 0,
@@ -48,6 +50,16 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS crok_team_event ON crok_team (event_id)`,
 ];
 
+/**
+ * Columns added after the first release. A tournament file written by an older
+ * version has to keep opening, so each is added if missing and the error when it
+ * already exists is the expected case, not a problem.
+ */
+const ADDED_COLUMNS: ReadonlyArray<readonly [string, string]> = [
+  ['crok_event', 'bronze_final INTEGER DEFAULT 1'],
+  ['crok_match', 'phys_table INTEGER'],
+];
+
 /** Open (creating if needed) the tournament database and apply the schema. */
 export function openDatabase(databasePath: string): Db {
   if (databasePath !== ':memory:') {
@@ -57,5 +69,12 @@ export function openDatabase(databasePath: string): Db {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
   for (const statement of SCHEMA) db.exec(statement);
+  for (const [table, column] of ADDED_COLUMNS) {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`);
+    } catch {
+      // Already there, which is the usual case.
+    }
+  }
   return db;
 }

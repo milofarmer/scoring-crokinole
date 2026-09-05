@@ -51,13 +51,22 @@ export interface Team {
   readonly player1: string;
   readonly player2: string;
   readonly pouleId: number;
+  /** What the team signs in with. Only ever shown on the organiser screen. */
+  readonly loginCode: string;
 }
 
 export interface Match {
   readonly id: number;
   readonly pouleId: number;
   readonly round: number;
+  /** The table within the poule, as printed on a player's schedule. */
   readonly tableNo: number;
+  /**
+   * The table in the hall, counted straight through. This is the one a camera
+   * or the jury can address, because it is one match per round; tableNo repeats
+   * once per poule. Null for a bye, which is played at no table.
+   */
+  readonly physTable: number | null;
   /** null only while a knockout slot is still waiting for a winner. */
   readonly teamAId: number | null;
   /** null means a bye (teamA advances) or an unfilled knockout slot. */
@@ -69,6 +78,8 @@ export interface Match {
   readonly phase: MatchPhase;
   /** Knockout round label, e.g. 'Quarter-finals' or 'Bronze final'. */
   readonly bracket: string | null;
+  /** Shown on the board so a table can be scored without an account. */
+  readonly matchCode: string | null;
   readonly shootoutWinner: number | null;
   readonly sets: readonly SetScore[] | null;
   readonly status: MatchStatus;

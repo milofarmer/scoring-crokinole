@@ -108,6 +108,7 @@ export function toTeam(value: unknown): Team {
     player1: str(row.player1, 'team.player1'),
     player2: str(row.player2, 'team.player2'),
     pouleId: toOptionalCount(row.poule_id),
+    loginCode: str(row.login_code, 'team.login_code'),
   };
 }
 
@@ -118,6 +119,7 @@ export function toMatch(value: unknown): Match {
     pouleId: toOptionalCount(row.poule_id),
     round: toOptionalCount(row.round),
     tableNo: toOptionalCount(row.table_no),
+    physTable: numOrNull(row.phys_table, 'match.phys_table'),
     teamAId: numOrNull(row.team_a_id, 'match.team_a_id'),
     teamBId: numOrNull(row.team_b_id, 'match.team_b_id'),
     pointsA: toOptionalPoints(row.points_a),
@@ -126,6 +128,7 @@ export function toMatch(value: unknown): Match {
     twentiesB: toOptionalCount(row.twenties_b),
     phase: toPhase(row.phase),
     bracket: strOrNull(row.bracket, 'match.bracket'),
+    matchCode: strOrNull(row.match_code, 'match.match_code'),
     shootoutWinner: numOrNull(row.shootout_winner, 'match.shootout_winner'),
     sets: toSets(row.sets_json, 'match.sets_json'),
     status: toStatus(row.status),
