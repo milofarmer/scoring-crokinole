@@ -1,5 +1,13 @@
 /* Big-screen / projector overrides. Loaded on top of style.css for board.php. */
-.wrap.board { max-width:none; padding:clamp(16px,2.2vw,40px); min-height:100vh; }
+.wrap.board { --joinh:clamp(92px,7vw,140px);      /* the QR inside the join box */
+  max-width:none; padding:clamp(16px,2.2vw,40px); min-height:100vh;
+  /* A column, so whatever is on show takes exactly the room left over after the
+     header. Sizing it in vh instead meant guessing the header height, and the
+     guess was wrong often enough to push the page into scrolling. */
+  display:flex; flex-direction:column;
+  /* Keep the bottom clear so the join box never sits on top of a match. */
+  padding-bottom:calc(var(--joinh) + 62px); }
+.wrap.board > #grid { flex:1 1 auto; min-height:0; }
 .board .topbar { padding:0 0 clamp(12px,1.6vw,26px); border-bottom:2px solid var(--line); margin-bottom:clamp(14px,1.8vw,28px); }
 .board .topbar .mark { width:clamp(48px,4vw,74px); height:clamp(48px,4vw,74px); }
 .board .topbar h1 { font-size:clamp(26px,3.2vw,52px); }
@@ -17,7 +25,7 @@
 .board.min .topbar .mark { width:clamp(28px,2.2vw,38px); height:clamp(28px,2.2vw,38px); }
 .board.min .topbar .eyebrow { display:none; }
 .board.min .topbar h1 { font-size:clamp(16px,1.9vw,28px); }
-.board.min .bracket2 { height:86vh; }
+
 .board .pagenav { padding-top:0; margin-bottom:10px; }
 .board .card { padding:clamp(14px,1.4vw,24px); margin:0; }
 .board .card h2 { font-size:clamp(14px,1.4vw,22px); display:flex; align-items:center; gap:10px; }
@@ -56,7 +64,7 @@
 /* knockout: World Cup bracket tree — teams on both sides, final in the centre */
 .ko-wrap { display:block; }
 .bracket2 { --cw:clamp(8px,.9vw,20px); display:flex; align-items:stretch; justify-content:center;
-  gap:clamp(6px,1.2vw,24px); width:100%; height:78vh; }
+  gap:clamp(6px,1.2vw,24px); width:100%; height:100%; }
 .bracket2 .half { flex:1 1 0; display:flex; align-items:stretch; min-width:0; }
 .bracket2 .half.left { direction:rtl; }
 .bracket2 .center { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; justify-content:center; }
@@ -81,10 +89,9 @@
   font-size:clamp(12px,1.05vw,21px); color:var(--muted); }
 .bracket2 .bmt+.bmt { border-top:1px solid var(--line); }
 .bracket2 .bmt .dot { width:8px; height:8px; border-radius:50%; flex:none; }
-/* A cut-off team name is useless on a big screen, so a long one wraps onto a
-   second line rather than ending in dots. */
-/* break-word rather than anywhere: it wraps at the spaces first and only splits
-   a word when a single word genuinely will not fit. */
+/* A cut-off team name is useless on a big screen, so a long one wraps rather
+   than ending in dots. break-word rather than anywhere: it wraps at the spaces
+   first and only splits a word when a single word genuinely will not fit. */
 .bracket2 .bmt b { flex:1; min-width:0; font-weight:600; line-height:1.15; overflow-wrap:break-word; }
 .bracket2 .bmt .sc { font-family:var(--mono); font-weight:700; }
 .bracket2 .bmt .so { font-family:var(--mono); font-size:.66em; background:var(--gold-soft); color:#6a5326; border-radius:4px; padding:0 4px; }
@@ -130,3 +137,19 @@
 .pagenote .pgdot { display:inline-block; width:8px; height:8px; border-radius:50%;
   background:var(--line); margin-left:5px; vertical-align:middle; }
 .pagenote .pgdot.on { background:var(--gold-2); }
+
+/* ---- join box: the QR players scan to reach the scoring page ----
+   Sits out of the way in a corner and stays put across every view, so a player
+   can walk up and scan at any point in the tournament. */
+.joinbox { position:fixed; left:16px; bottom:12px; display:flex; align-items:center; gap:14px;
+  background:var(--panel); border:1px solid var(--line); border-radius:14px;
+  padding:12px 18px 12px 12px; box-shadow:var(--shadow); cursor:pointer; z-index:5; }
+.joinbox .qr { width:clamp(92px,7vw,140px); height:clamp(92px,7vw,140px); flex:none; line-height:0; }
+.joinbox .qr svg { width:100%; height:100%; display:block; border-radius:4px; }
+.joinbox .lab { font-family:var(--mono); font-size:clamp(9px,.72vw,12px); letter-spacing:.12em;
+  color:var(--muted); }
+.joinbox .url { font-size:clamp(13px,1.05vw,20px); font-weight:700; color:var(--ink); margin-top:3px; }
+.joinbox .hint { font-size:clamp(10px,.78vw,13px); color:var(--muted-2); margin-top:3px; max-width:22ch; }
+/* No usable address yet: say so rather than showing a code that will not work. */
+.joinbox.unset { border-color:var(--gold-2); background:var(--gold-soft); }
+.joinbox.unset .url { color:#6a5326; }

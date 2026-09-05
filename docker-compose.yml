@@ -8,6 +8,13 @@ services:
     environment:
       CROK_DB_DRIVER: sqlite            # or "mysql" to use the block below
       CROK_SQLITE_PATH: /var/www/html/data/crok.sqlite
+      # The address players see on the board, instead of an IP nobody can
+      # remember and that changes with every router. Announce it with
+      #   tools/announce-name.sh
+      # and leave that running for the tournament. The board keeps showing the
+      # numeric address underneath, because Android below version 12 cannot
+      # resolve .local names.
+      CROK_HOSTNAME: "croki.local:8085"
       # --- optional MySQL backend ---
       # CROK_DB_DRIVER: mysql
       # CROK_DB_HOST: db

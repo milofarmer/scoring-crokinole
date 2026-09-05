@@ -22,8 +22,20 @@
 
   <div id="grid" class="board-grid"></div>
 </div>
+
+<!-- How players get to the scoring page: scan this, on the hall's wifi. -->
+<div class="joinbox" id="joinBox" hidden>
+  <div class="qr" id="joinQr"></div>
+  <div class="txt">
+    <div class="lab">SCORE ON YOUR PHONE</div>
+    <div class="url mono" id="joinUrl">—</div>
+    <div class="hint" id="joinHint">Connect to the hall wifi first</div>
+  </div>
+</div>
+
 <div class="updated" id="updated"></div>
 
+<script src="<?= crok_asset('assets/qr.js') ?>"></script>
 <script>
 const $ = s => document.querySelector(s);
 const pouleColors = ['var(--red)','var(--blue)','var(--green)','var(--gold-2)'];
@@ -277,6 +289,81 @@ function startCycle(){
 }
 function stopCycle(){ if(cycleTimer){clearTimeout(cycleTimer);cycleTimer=null;} }
 $('#autocycle').onchange=e=>{ if(e.target.checked){ startCycle(); } else stopCycle(); };
+
+/* ---- how a player joins ----
+   The scoring page is already served to anything on the hall's wifi; the missing
+   piece was telling players where it is. A QR beats reading an IP address off a
+   screen and typing it into a phone.
+
+   The address comes from whatever the organiser opened the board on, which is
+   the right answer whenever they used the laptop's network address. If they
+   opened it on localhost, that address means "this laptop" on a player's phone
+   and would not work, so we say so and let them set the real one instead of
+   showing a code that silently fails. */
+const JOIN_OVERRIDE = 'crok_join_url';
+
+/* An IP address is a bad thing to put on a screen: nobody can hold it in their
+   head, and it changes the moment the laptop joins a different router. A name
+   does not. On a local network you can have one for free over mDNS, the same
+   mechanism that makes printers appear by name, with no DNS server and nothing
+   configured on the router. Run tools/announce-name.sh and set CROK_HOSTNAME.
+
+   The name goes in the QR code and on the big line. The numeric address stays
+   underneath as a fallback, because Android only learned to resolve .local in
+   version 12 and a hall holds a mix of phones. */
+const FRIENDLY_NAME = <?= json_encode(trim((string) getenv('CROK_HOSTNAME'))) ?>;
+
+function isLocalOnly(host){ return ['localhost','127.0.0.1','[::1]','::1',''].includes(host); }
+function isNumeric(host){ return /^\d+\.\d+\.\d+\.\d+$/.test(host); }
+
+/* What players should open, and what to fall back to if their phone cannot
+   resolve a name. */
+function joinTarget(){
+  const saved = localStorage.getItem(JOIN_OVERRIDE);
+  if(saved) return { url: saved, ok: true, fallback: '' };
+
+  const here = location.origin + '/index.php';
+  if(FRIENDLY_NAME){
+    return { url: 'http://' + FRIENDLY_NAME + '/index.php', ok: true,
+             fallback: isNumeric(location.hostname) ? location.host : '' };
+  }
+  if(isLocalOnly(location.hostname)){
+    return { url: '', ok: false, fallback: '',
+             note: 'Open the board on the laptop’s network address, or click here to set it' };
+  }
+  return { url: here, ok: true, fallback: '' };
+}
+
+let joinShown = null;
+function renderJoin(){
+  const box = $('#joinBox'), target = joinTarget();
+  if(target.url === joinShown) return;        // drawing a QR is not free; only redraw on change
+  joinShown = target.url;
+
+  box.hidden = false;
+  $('#joinUrl').textContent = target.ok
+    ? target.url.replace(/^https?:\/\//, '').replace(/\/index\.php$/, '')
+    : 'not reachable from a phone';
+  $('#joinHint').textContent = target.ok
+    ? (target.fallback ? 'On the hall wifi. Older phones: ' + target.fallback : 'Connect to the hall wifi first')
+    : target.note;
+  box.classList.toggle('unset', !target.ok);
+  $('#joinQr').innerHTML = target.ok ? crokQR.svg(target.url, { quiet: 2 }) : '';
+}
+
+// Clicking the box lets the organiser type the address players should use.
+$('#joinBox').onclick = () => {
+  const current = localStorage.getItem(JOIN_OVERRIDE) || (isLocalOnly(location.hostname) ? '' : location.origin + '/index.php');
+  const answer = prompt('Address players should open on their phone:', current);
+  if(answer === null) return;
+  const trimmed = answer.trim();
+  if(trimmed === '') localStorage.removeItem(JOIN_OVERRIDE);
+  else localStorage.setItem(JOIN_OVERRIDE, /^https?:\/\//.test(trimmed) ? trimmed : 'http://' + trimmed);
+  joinShown = null;
+  renderJoin();
+};
+
+renderJoin();
 
 // collapsible header to free up screen space
 const boardEl=document.querySelector('.wrap.board');
