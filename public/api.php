@@ -21,7 +21,9 @@ if ($raw !== '' && $raw !== false) {
     if (is_array($decoded)) $body = $decoded;
 }
 $in = array_merge($_GET, $_POST, $body);
-$action = (string)($in['action'] ?? 'state');
+// A path (/api/state) wins over anything in the body, so a request cannot claim
+// to be one call while being routed as another.
+$action = (string)($_GET['_route'] ?? $in['action'] ?? 'state');
 
 function crok_param($in, $key, $default = null) { return $in[$key] ?? $default; }
 
@@ -138,8 +140,6 @@ function crok_state(PDO $db, array $ev): array {
             'id' => $eventId,
             'name' => $ev['name'],
             'num_rounds' => (int)$ev['num_rounds'],
-            'points_win' => (int)$ev['points_win'],
-            'points_tie' => (int)$ev['points_tie'],
             'current_round' => $round,
             'is_knockout' => $isKo,
             'round_label' => $isKo && $matches ? ($matches[0]['bracket'] ?? 'Knockout') : ('Round ' . $round),

@@ -1,2 +1,9 @@
 DirectoryIndex index.php
 Options -Indexes
+
+# Clean paths for the API: /api/state is the same call as api.php?action=state.
+# The query-string form still works, so nothing that already integrates breaks.
+# The action is passed as _route rather than action so that a path can never be
+# overridden by an action in the request body.
+RewriteEngine On
+RewriteRule ^api/([A-Za-z_][A-Za-z0-9_]*)/?$ api.php?_route=$1 [QSA,L]

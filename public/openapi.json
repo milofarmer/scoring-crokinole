@@ -1,0 +1,358 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Crokinole tournament API",
+    "version": "2.0.0",
+    "summary": "Read the draw, score a match, and pull the season ranking.",
+    "description": "The tournament runs on a laptop in the hall. Everything here is served by that laptop over the venue's own network, so the API is reachable from any phone, tablet or scoring machine on the same wifi and from nowhere else.\n\n## Two ways to call\n\nEvery call is one action. Both of these are the same request:\n\n    GET  /api/state\n    GET  /api.php?action=state\n\nThe path form is the one to use. The query form is older and still works, so nothing that already integrates has to change.\n\nAnything that changes something takes POST with a JSON body; reads take GET. Responses are always JSON with an `ok` field, and a failure carries `ok: false` and a human-readable `error`.\n\n## Scoring\n\nA match is four sets. Each set is won by whoever scored more **in that set** and is worth 2, or 1 each when the set is level, so a match shares out 8 points. Points scored inside a set decide that set and nothing else: a team can score far more across the four sets and still lose the match.\n\nSend the per-set breakdown and the laptop works the match points out itself. `points_a` and `points_b` in a response are always match points, out of 8.\n\n## Who may call what\n\n- **Reading the draw and the ranking** needs nothing.\n- **A scoring machine** sends an `X-Api-Key` header. The key is generated per event and shown in the organiser screen.\n- **A player** proves they belong to the match with a code: the match code from the board, their team code, or the event's play code.\n- **The organiser** sends the event's PIN.\n\nEvery result records who entered it, so a score is always traceable back to a phone, the machine, or the organiser.",
+    "contact": { "name": "croki.nl", "url": "https://croki.nl" }
+  },
+  "servers": [
+    { "url": "/", "description": "The laptop running the tournament" }
+  ],
+  "tags": [
+    { "name": "Tournament", "description": "The draw, the standings and the schedule. Open to anyone on the network; this is what the big board reads." },
+    { "name": "Automated scoring", "description": "For a machine that scores tables on its own. Find out what is on each table, then send results back. It goes through the same path as a score typed on a phone, so an automatic result and a hand-entered one behave identically and the organiser can overrule either." },
+    { "name": "Players", "description": "Signing in with a team or match code and entering a score." },
+    { "name": "Season ranking", "description": "NCA Field-Weighted Points across the season. Read-only and public." },
+    { "name": "Organiser", "description": "Setting the tournament up and running it. Needs the event PIN." }
+  ],
+  "paths": {
+    "/api/state": {
+      "get": {
+        "tags": ["Tournament"],
+        "summary": "The tournament as it stands",
+        "operationId": "getState",
+        "description": "Everything the board needs in one call: the event, its poules, the standings per poule, and every match in the current round. Poll this rather than holding a connection open.\n\nStandings are keyed by poule id. The key `0` holds teams not yet placed in a poule.",
+        "parameters": [{ "$ref": "#/components/parameters/EventId" }],
+        "responses": {
+          "200": {
+            "description": "The current state. `event` is null when no tournament has been created yet.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StateResponse" }, "examples": { "running": { "summary": "A tournament in its third round", "value": { "ok": true, "event": { "id": 2, "name": "NK Crokinole", "num_rounds": 4, "current_round": 3, "is_knockout": false, "round_label": "Round 3", "status": "running" }, "poules": [{ "id": 1, "name": "A", "tables": 4 }], "standings": { "1": [{ "team_id": 12, "name": "De Gladde Schijven", "number": 12, "played": 3, "wins": 2, "ties": 1, "losses": 0, "points": 14, "twenties": 21 }] }, "round_matches": [{ "id": 55, "poule_id": 1, "round": 3, "table_no": 2, "team_a": { "id": 12, "name": "De Gladde Schijven", "number": 12 }, "team_b": { "id": 27, "name": "Vingervlug", "number": 27 }, "points_a": 6, "points_b": 2, "twenties_a": 3, "twenties_b": 1, "phase": "poule", "bracket": null, "match_code": "MD55", "shootout_winner": null, "sets": [{ "pa": 21, "pb": 20, "ta": 1, "tb": 0 }, { "pa": 21, "pb": 20, "ta": 1, "tb": 0 }, { "pa": 21, "pb": 20, "ta": 1, "tb": 1 }, { "pa": 5, "pb": 80, "ta": 0, "tb": 0 }], "status": "entered", "scored": true }], "server_time": 1788635252 } }, "empty": { "summary": "Nothing set up yet", "value": { "ok": true, "event": null } } } } }
+          }
+        }
+      }
+    },
+    "/api/schedule": {
+      "get": {
+        "tags": ["Tournament"],
+        "summary": "Every match, every round",
+        "operationId": "getSchedule",
+        "description": "The whole draw rather than just the current round, grouped by round number. The board uses this to draw the knockout bracket.\n\nNote that `sets_a` and `sets_b` carry match points out of 8, not a count of sets; the name is older than the rule.",
+        "parameters": [{ "$ref": "#/components/parameters/EventId" }],
+        "responses": {
+          "200": {
+            "description": "Every round of the draw.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleResponse" } } }
+          }
+        }
+      }
+    },
+    "/api/ingest_tables": {
+      "get": {
+        "tags": ["Automated scoring"],
+        "summary": "What is on each table right now",
+        "operationId": "ingestTables",
+        "description": "Call this first. It tells a machine which match is at which table, so a camera pointed at table 4 knows what it is watching.\n\nEvery match carries a `match_code`. Quote that code when sending a score and there is no ambiguity to resolve.",
+        "security": [{ "MachineKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/EventId" },
+          { "name": "round", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1 }, "description": "Which round to list. Defaults to the round being played." }
+        ],
+        "responses": {
+          "200": {
+            "description": "The matches in that round.",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "const": true }, "round": { "type": "integer" }, "matches": { "type": "array", "items": { "$ref": "#/components/schemas/IngestMatch" } } } }, "examples": { "round3": { "value": { "ok": true, "round": 3, "matches": [{ "match_code": "MD55", "match_id": 55, "round": 3, "table": 2, "poule": "A", "phase": "poule", "bracket": null, "team_a": { "id": 12, "name": "De Gladde Schijven" }, "team_b": { "id": 27, "name": "Vingervlug" }, "points_a": null, "points_b": null, "status": "pending" }] } } } } }
+          },
+          "401": { "$ref": "#/components/responses/BadKey" },
+          "404": { "$ref": "#/components/responses/NoEvent" }
+        }
+      }
+    },
+    "/api/ingest_score": {
+      "post": {
+        "tags": ["Automated scoring"],
+        "summary": "Send a result",
+        "operationId": "ingestScore",
+        "description": "Record a score for one match.\n\n## Saying which match\n\nOne of three, in order of preference:\n\n1. `match_code` — from the board or from ingest_tables. Never ambiguous.\n2. `match_id` — the numeric id from ingest_tables.\n3. `table` — plus `round` and, if two poules share table numbers, `poule`.\n\nA table number that matches more than one match is refused with a 409 rather than guessed at. Sending the wrong result to the wrong table is far worse than an error.\n\n## Sending the score\n\nSend `sets`: an entry per set with points and 20's for both teams. The laptop works out the match points, so a bug in a client cannot invent a scoreline. `pa` or `pb` may be null for a set not yet played.\n\nSet `complete: true` only when all four sets are in. Until then the result is held as in-progress and does not count toward the standings, which lets a machine stream a match as it happens without a half-finished score reaching the table.\n\nSending the same result twice is harmless: it overwrites with the same values.",
+        "security": [{ "MachineKey": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IngestScoreRequest" }, "examples": {
+            "finished": { "summary": "A finished match, by match code", "value": { "match_code": "MD55", "sets": [{ "pa": 21, "pb": 20, "ta": 1, "tb": 0 }, { "pa": 21, "pb": 20, "ta": 1, "tb": 0 }, { "pa": 21, "pb": 20, "ta": 1, "tb": 1 }, { "pa": 5, "pb": 80, "ta": 0, "tb": 0 }], "complete": true, "source": "table-cam-4" } },
+            "inprogress": { "summary": "Two sets played so far", "value": { "match_code": "MD55", "sets": [{ "pa": 30, "pb": 24, "ta": 1, "tb": 0 }, { "pa": 22, "pb": 28, "ta": 0, "tb": 2 }, { "pa": null, "pb": null, "ta": 0, "tb": 0 }, { "pa": null, "pb": null, "ta": 0, "tb": 0 }], "complete": false, "source": "table-cam-4" } },
+            "bytable": { "summary": "By table number", "value": { "table": 4, "round": 3, "poule": "A", "sets": [{ "pa": 30, "pb": 24, "ta": 1, "tb": 0 }], "complete": false } },
+            "shootout": { "summary": "A level knockout match settled by a shoot-out", "value": { "match_code": "X6JR", "sets": [{ "pa": 30, "pb": 24, "ta": 0, "tb": 0 }, { "pa": 20, "pb": 26, "ta": 0, "tb": 0 }, { "pa": 31, "pb": 25, "ta": 0, "tb": 0 }, { "pa": 22, "pb": 28, "ta": 0, "tb": 0 }], "shootout_winner": 12, "complete": true } }
+          } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Recorded. The match is returned as it now stands, so the caller can check what was stored rather than assume.",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "const": true }, "match": { "$ref": "#/components/schemas/MatchPublic" } } } } }
+          },
+          "400": { "description": "No match was identified.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "ok": false, "error": "Identify the match with match_code, match_id, or table." } } } },
+          "401": { "$ref": "#/components/responses/BadKey" },
+          "404": { "description": "No match with that code, id, or table in that round.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "ok": false, "error": "Unknown match_code." } } } },
+          "409": { "description": "The table holds more than one match, or the match is a bye and there is nothing to score.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "ok": false, "error": "Table 4 is ambiguous in round 3 (2 matches). Send match_code, or add \"poule\"." } } } }
+        }
+      }
+    },
+    "/api/team_login": {
+      "post": {
+        "tags": ["Players"],
+        "summary": "Sign in with a team code",
+        "operationId": "teamLogin",
+        "description": "Exchanges a team's code for its details, so a player sees their own matches all tournament rather than typing a code per match.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["code"], "properties": { "code": { "type": "string", "description": "The team code, case-insensitive.", "examples": ["7QK4"] }, "event_id": { "type": "integer" } } } } } },
+        "responses": {
+          "200": { "description": "The team.", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "const": true }, "team": { "$ref": "#/components/schemas/Team" } } } } } },
+          "403": { "description": "No team has that code.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "ok": false, "error": "Unknown team code." } } } }
+        }
+      }
+    },
+    "/api/match_login": {
+      "post": {
+        "tags": ["Players"],
+        "summary": "Open a match by its code",
+        "operationId": "matchLogin",
+        "description": "The code shown against a match on the big board. It proves whoever has it is at that table, and needs no account.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["code"], "properties": { "code": { "type": "string", "description": "The match code, case-insensitive.", "examples": ["MD55"] }, "event_id": { "type": "integer" } } } } } },
+        "responses": {
+          "200": { "description": "The match.", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "const": true }, "match": { "$ref": "#/components/schemas/MatchPublic" } } } } } },
+          "403": { "description": "No match has that code.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "ok": false, "error": "Unknown match code." } } } }
+        }
+      }
+    },
+    "/api/submit_score": {
+      "post": {
+        "tags": ["Players"],
+        "summary": "Enter a score from a phone",
+        "operationId": "submitScore",
+        "description": "The same path a machine uses, with a different proof of identity. `code` may be the match's own code, the team code of a team playing in it, the event play code, or the organiser PIN.\n\nSave freely as the match goes on with `complete: false`; the phone does this on every keystroke. The result only counts once `complete` is true.\n\nA result the organiser has confirmed is locked, and a player sending to it gets a 409. The organiser can still change it.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SubmitScoreRequest" }, "example": { "match_id": 55, "code": "MD55", "sets": [{ "pa": 21, "pb": 20, "ta": 1, "tb": 0 }, { "pa": 21, "pb": 20, "ta": 1, "tb": 0 }, { "pa": 21, "pb": 20, "ta": 1, "tb": 1 }, { "pa": 5, "pb": 80, "ta": 0, "tb": 0 }], "complete": true, "entered_by": "phone" } } } },
+        "responses": {
+          "200": { "description": "Saved.", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "const": true }, "status": { "$ref": "#/components/schemas/MatchStatus" } } }, "example": { "ok": true, "status": "entered" } } } },
+          "403": { "description": "The code does not open this match.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "ok": false, "error": "Not your match, or wrong code." } } } },
+          "404": { "description": "No such match in this event." },
+          "409": { "description": "The organiser has confirmed this result and it is locked." }
+        }
+      }
+    },
+    "/api/season_state": {
+      "get": {
+        "tags": ["Season ranking"],
+        "summary": "The season leaderboard",
+        "operationId": "seasonState",
+        "description": "Field-Weighted Points across the season, and the nights that count toward it. Public, so croki.nl can render it in its own design.",
+        "parameters": [{ "name": "season", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Which season. Defaults to the current one.", "examples": { "s": { "value": "2026" } } }],
+        "responses": { "200": { "description": "The leaderboard.", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "const": true }, "season": { "type": ["string", "null"] }, "standings": { "type": "array", "items": { "type": "object" } }, "nights": { "type": "array", "items": { "type": "object" } } } } } } } }
+      }
+    },
+    "/api/admin_login": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "Check the organiser PIN",
+        "operationId": "adminLogin",
+        "security": [{ "AdminPin": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin"], "properties": { "admin_pin": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Correct.", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "const": true }, "event_id": { "type": "integer" } } } } } }, "403": { "$ref": "#/components/responses/BadPin" } }
+      }
+    },
+    "/api/admin_state": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "Everything the organiser screen needs",
+        "operationId": "adminState",
+        "description": "The event with its codes and the machine API key, all teams with their login codes, and every match. Guarded by the PIN because it hands out the codes that let people score.",
+        "security": [{ "AdminPin": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin"], "properties": { "admin_pin": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "The full picture." }, "403": { "$ref": "#/components/responses/BadPin" } }
+      }
+    },
+    "/api/create_event": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "Create a tournament",
+        "operationId": "createEvent",
+        "description": "The number of rounds is the poule stage; the knockout is drawn separately once the poules finish.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "admin_pin"], "properties": { "name": { "type": "string", "examples": ["NK Crokinole 2026"] }, "admin_pin": { "type": "string", "description": "Set now; needed for every organiser call afterwards." }, "play_code": { "type": "string", "description": "Optional shared code that lets any player enter any score." }, "num_rounds": { "type": "integer", "default": 4 } } } } } },
+        "responses": { "200": { "description": "Created." } }
+      }
+    },
+    "/api/update_event": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "Change the tournament settings",
+        "operationId": "updateEvent",
+        "security": [{ "AdminPin": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin"], "properties": { "admin_pin": { "type": "string" }, "name": { "type": "string" }, "num_rounds": { "type": "integer" }, "current_round": { "type": "integer" }, "play_code": { "type": "string" }, "advance_per_poule": { "type": "integer", "description": "How many teams go through from each poule." }, "status": { "type": "string", "enum": ["setup", "running", "done"] } } } } } },
+        "responses": { "200": { "description": "Updated." }, "403": { "$ref": "#/components/responses/BadPin" } }
+      }
+    },
+    "/api/set_poules": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "Set up the poules",
+        "operationId": "setPoules",
+        "security": [{ "AdminPin": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin"], "properties": { "admin_pin": { "type": "string" }, "poules": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "tables": { "type": "integer" } } } } } } } } },
+        "responses": { "200": { "description": "Set." }, "403": { "$ref": "#/components/responses/BadPin" } }
+      }
+    },
+    "/api/add_team": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "Add one team",
+        "operationId": "addTeam",
+        "security": [{ "AdminPin": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin", "name"], "properties": { "admin_pin": { "type": "string" }, "name": { "type": "string" }, "player1": { "type": "string" }, "player2": { "type": "string", "description": "Leave out for a singles tournament." }, "poule_id": { "type": "integer" } } } } } },
+        "responses": { "200": { "description": "Added, with the login code the team will use." }, "403": { "$ref": "#/components/responses/BadPin" } }
+      }
+    },
+    "/api/bulk_add_teams": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "Add many teams at once",
+        "operationId": "bulkAddTeams",
+        "description": "For pasting an entry list in rather than typing 44 teams one at a time.",
+        "security": [{ "AdminPin": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin", "teams"], "properties": { "admin_pin": { "type": "string" }, "teams": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "player1": { "type": "string" }, "player2": { "type": "string" } } } } } } } } },
+        "responses": { "200": { "description": "Added." }, "403": { "$ref": "#/components/responses/BadPin" } }
+      }
+    },
+    "/api/update_team": {
+      "post": { "tags": ["Organiser"], "summary": "Change a team", "operationId": "updateTeam", "security": [{ "AdminPin": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin", "team_id"], "properties": { "admin_pin": { "type": "string" }, "team_id": { "type": "integer" }, "name": { "type": "string" }, "player1": { "type": "string" }, "player2": { "type": "string" }, "poule_id": { "type": "integer" } } } } } }, "responses": { "200": { "description": "Updated." }, "403": { "$ref": "#/components/responses/BadPin" } } }
+    },
+    "/api/delete_team": {
+      "post": { "tags": ["Organiser"], "summary": "Remove a team", "operationId": "deleteTeam", "security": [{ "AdminPin": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin", "team_id"], "properties": { "admin_pin": { "type": "string" }, "team_id": { "type": "integer" } } } } } }, "responses": { "200": { "description": "Removed." }, "403": { "$ref": "#/components/responses/BadPin" } } }
+    },
+    "/api/generate_round": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "Draw the next poule round",
+        "operationId": "generateRound",
+        "description": "Pairs each poule for the round, avoiding rematches where it can and giving an odd team out a bye. A bye counts as a clean sweep, all four sets.",
+        "security": [{ "AdminPin": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin"], "properties": { "admin_pin": { "type": "string" }, "round": { "type": "integer", "description": "Which round to draw. Defaults to the next one." } } } } } },
+        "responses": { "200": { "description": "Drawn." }, "403": { "$ref": "#/components/responses/BadPin" } }
+      }
+    },
+    "/api/generate_ko": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "Draw the knockout",
+        "operationId": "generateKo",
+        "description": "Takes the qualifiers from every poule, plus the best runners-up needed to fill the bracket, and seeds them so that poule winners meet as late as possible.",
+        "security": [{ "AdminPin": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin"], "properties": { "admin_pin": { "type": "string" }, "size": { "type": "integer", "description": "Bracket size, a power of two.", "examples": [16] }, "bronze": { "type": "boolean", "description": "Whether to play a third-place match.", "default": false } } } } } },
+        "responses": { "200": { "description": "Drawn." }, "403": { "$ref": "#/components/responses/BadPin" } }
+      }
+    },
+    "/api/generate_next_ko": {
+      "post": { "tags": ["Organiser"], "summary": "Draw the next knockout round", "operationId": "generateNextKo", "description": "Normally unnecessary: winners are carried through automatically as results come in. This forces it.", "security": [{ "AdminPin": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin"], "properties": { "admin_pin": { "type": "string" } } } } } }, "responses": { "200": { "description": "Drawn." }, "403": { "$ref": "#/components/responses/BadPin" } } }
+    },
+    "/api/set_match": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "Correct or confirm a result",
+        "operationId": "setMatch",
+        "description": "The organiser's override. Set `status` to `confirmed` to lock a result so a phone cannot change it afterwards.",
+        "security": [{ "AdminPin": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin", "match_id"], "properties": { "admin_pin": { "type": "string" }, "match_id": { "type": "integer" }, "sets": { "type": "array", "items": { "$ref": "#/components/schemas/SetScore" } }, "points_a": { "type": "integer", "description": "Match points out of 8. Prefer sending sets and letting them be worked out." }, "points_b": { "type": "integer" }, "twenties_a": { "type": "integer" }, "twenties_b": { "type": "integer" }, "shootout_winner": { "type": ["integer", "null"] }, "status": { "$ref": "#/components/schemas/MatchStatus" } } } } } },
+        "responses": { "200": { "description": "Saved." }, "403": { "$ref": "#/components/responses/BadPin" } }
+      }
+    },
+    "/api/reset_event": {
+      "post": { "tags": ["Organiser"], "summary": "Clear all results", "operationId": "resetEvent", "description": "Wipes every score and draw but keeps the teams. There is no undo.", "security": [{ "AdminPin": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin"], "properties": { "admin_pin": { "type": "string" } } } } } }, "responses": { "200": { "description": "Cleared." }, "403": { "$ref": "#/components/responses/BadPin" } } }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "MachineKey": { "type": "apiKey", "in": "header", "name": "X-Api-Key", "description": "Generated once per event and shown in the organiser screen. It is scoped to that one event, so a leaked key cannot touch another tournament. May also be sent as `api_key` in the body." },
+      "AdminPin": { "type": "apiKey", "in": "header", "name": "admin_pin", "description": "The organiser PIN, sent as `admin_pin` in the request body." }
+    },
+    "parameters": {
+      "EventId": { "name": "event_id", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Which tournament. Defaults to the one running, so this is rarely needed." }
+    },
+    "responses": {
+      "BadKey": { "description": "Missing or wrong API key.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "ok": false, "error": "Invalid API key." } } } },
+      "BadPin": { "description": "Missing or wrong organiser PIN.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "ok": false, "error": "Wrong organizer PIN." } } } },
+      "NoEvent": { "description": "No such tournament.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "ok": false, "error": "No event." } } } }
+    },
+    "schemas": {
+      "Error": { "type": "object", "description": "Every failure looks like this. The message is meant to be readable by a person.", "properties": { "ok": { "const": false }, "error": { "type": "string" } }, "required": ["ok", "error"] },
+      "MatchStatus": { "type": "string", "enum": ["pending", "progress", "entered", "confirmed"], "description": "pending: drawn, nothing entered. progress: partly entered and auto-saved, does not count. entered: complete, counts. confirmed: the organiser has locked it." },
+      "MatchPhase": { "type": "string", "enum": ["poule", "ko"] },
+      "SetScore": {
+        "type": "object",
+        "description": "One set. Points decide who wins the set; 20's are recorded but never decide it.",
+        "properties": {
+          "pa": { "type": ["integer", "null"], "minimum": 0, "description": "Points team A scored in this set. Null if the set has not been played." },
+          "pb": { "type": ["integer", "null"], "minimum": 0, "description": "Points team B scored in this set." },
+          "ta": { "type": "integer", "minimum": 0, "default": 0, "description": "20's by team A in this set." },
+          "tb": { "type": "integer", "minimum": 0, "default": 0, "description": "20's by team B in this set." }
+        }
+      },
+      "Event": { "type": "object", "properties": { "id": { "type": "integer" }, "name": { "type": "string" }, "num_rounds": { "type": "integer", "description": "Rounds in the poule stage." }, "current_round": { "type": "integer", "description": "Higher than num_rounds once the knockout has started." }, "is_knockout": { "type": "boolean" }, "round_label": { "type": "string", "examples": ["Round 3", "Quarter-final"] }, "status": { "type": "string", "enum": ["setup", "running", "done"] } } },
+      "Poule": { "type": "object", "properties": { "id": { "type": "integer" }, "name": { "type": "string", "examples": ["A"] }, "tables": { "type": "integer" } } },
+      "Team": { "type": "object", "properties": { "id": { "type": "integer" }, "name": { "type": "string" }, "number": { "type": "integer" }, "poule_id": { "type": "integer" }, "player1": { "type": ["string", "null"] }, "player2": { "type": ["string", "null"], "description": "Null in a singles tournament." } } },
+      "TeamRef": { "type": ["object", "null"], "properties": { "id": { "type": "integer" }, "name": { "type": "string" }, "number": { "type": "integer" } } },
+      "StandingRow": {
+        "type": "object",
+        "description": "One row of a poule table. Ordered by points, then 20's; a tie for first is broken by the head-to-head result between the teams level at the top.",
+        "properties": { "team_id": { "type": "integer" }, "name": { "type": "string" }, "number": { "type": "integer" }, "played": { "type": "integer" }, "wins": { "type": "integer" }, "ties": { "type": "integer" }, "losses": { "type": "integer" }, "points": { "type": "integer", "description": "Match points: 2 per set won, 1 per level set, so up to 8 per match." }, "twenties": { "type": "integer" } }
+      },
+      "Match": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" }, "poule_id": { "type": "integer" }, "round": { "type": "integer" }, "table_no": { "type": "integer" },
+          "team_a": { "$ref": "#/components/schemas/TeamRef" },
+          "team_b": { "$ref": "#/components/schemas/TeamRef", "description": "Null when the match is a bye." },
+          "points_a": { "type": ["integer", "null"], "description": "Match points out of 8, not points scored." },
+          "points_b": { "type": ["integer", "null"] },
+          "twenties_a": { "type": "integer" }, "twenties_b": { "type": "integer" },
+          "phase": { "$ref": "#/components/schemas/MatchPhase" },
+          "bracket": { "type": ["string", "null"], "examples": ["Quarter-final"] },
+          "match_code": { "type": ["string", "null"], "description": "Shown on the board. Four characters, no I, L, O, 0 or 1 so it cannot be misread." },
+          "shootout_winner": { "type": ["integer", "null"], "description": "Team id, when a level knockout match went to a shoot-out." },
+          "sets": { "type": ["array", "null"], "items": { "$ref": "#/components/schemas/SetScore" } },
+          "status": { "$ref": "#/components/schemas/MatchStatus" },
+          "scored": { "type": "boolean", "description": "Whether this counts toward the standings yet." }
+        }
+      },
+      "MatchPublic": { "type": "object", "description": "A match as returned to a phone or a scoring machine.", "properties": { "id": { "type": "integer" }, "match_code": { "type": ["string", "null"] }, "table_no": { "type": "integer" }, "round": { "type": "integer" }, "poule_id": { "type": "integer" }, "phase": { "$ref": "#/components/schemas/MatchPhase" }, "bracket": { "type": ["string", "null"] }, "team_a": { "$ref": "#/components/schemas/TeamRef" }, "team_b": { "$ref": "#/components/schemas/TeamRef" }, "points_a": { "type": ["integer", "null"] }, "points_b": { "type": ["integer", "null"] }, "sets": { "type": ["array", "null"], "items": { "$ref": "#/components/schemas/SetScore" } }, "status": { "$ref": "#/components/schemas/MatchStatus" }, "winner": { "type": ["string", "null"], "enum": ["a", "b", null] }, "winner_team_id": { "type": ["integer", "null"] } } },
+      "IngestMatch": { "type": "object", "properties": { "match_code": { "type": ["string", "null"] }, "match_id": { "type": "integer" }, "round": { "type": "integer" }, "table": { "type": "integer" }, "poule": { "type": ["string", "null"] }, "phase": { "$ref": "#/components/schemas/MatchPhase" }, "bracket": { "type": ["string", "null"] }, "team_a": { "$ref": "#/components/schemas/TeamRef" }, "team_b": { "$ref": "#/components/schemas/TeamRef" }, "points_a": { "type": ["integer", "null"] }, "points_b": { "type": ["integer", "null"] }, "status": { "$ref": "#/components/schemas/MatchStatus" } } },
+      "StateResponse": { "type": "object", "properties": { "ok": { "const": true }, "event": { "oneOf": [{ "$ref": "#/components/schemas/Event" }, { "type": "null" }] }, "poules": { "type": "array", "items": { "$ref": "#/components/schemas/Poule" } }, "standings": { "type": "object", "description": "Keyed by poule id, as a string. Key \"0\" holds teams not yet in a poule.", "additionalProperties": { "type": "array", "items": { "$ref": "#/components/schemas/StandingRow" } } }, "round_matches": { "type": "array", "items": { "$ref": "#/components/schemas/Match" } }, "server_time": { "type": "integer", "description": "Unix seconds, for spotting a clock that has drifted." } } },
+      "ScheduleResponse": { "type": "object", "properties": { "ok": { "const": true }, "event": { "type": "object" }, "poules": { "type": "array", "items": { "$ref": "#/components/schemas/Poule" } }, "rounds": { "type": "object", "description": "Keyed by round number.", "additionalProperties": { "type": "array", "items": { "type": "object" } } } } },
+      "IngestScoreRequest": {
+        "type": "object",
+        "description": "Identify the match with exactly one of match_code, match_id, or table.",
+        "properties": {
+          "match_code": { "type": "string", "description": "Preferred. Never ambiguous.", "examples": ["MD55"] },
+          "match_id": { "type": "integer" },
+          "table": { "type": "integer", "description": "Needs round, and poule when two poules share table numbers." },
+          "round": { "type": "integer" },
+          "poule": { "type": "string", "examples": ["A"] },
+          "sets": { "type": "array", "maxItems": 4, "items": { "$ref": "#/components/schemas/SetScore" }, "description": "Up to four sets. The laptop works the match points out from these." },
+          "shootout_winner": { "type": ["integer", "null"], "description": "Team id, for a level knockout match." },
+          "complete": { "type": "boolean", "default": false, "description": "True only when all four sets are in. Until then the result does not count." },
+          "source": { "type": "string", "description": "Recorded against the result so it can be traced back.", "examples": ["table-cam-4"] },
+          "event_id": { "type": "integer" }
+        }
+      },
+      "SubmitScoreRequest": {
+        "type": "object",
+        "required": ["match_id", "code"],
+        "properties": {
+          "match_id": { "type": "integer" },
+          "code": { "type": "string", "description": "The match code, a team code of a team in the match, the event play code, or the organiser PIN." },
+          "sets": { "type": "array", "maxItems": 4, "items": { "$ref": "#/components/schemas/SetScore" } },
+          "shootout_winner": { "type": ["integer", "null"] },
+          "complete": { "type": "boolean", "default": false },
+          "entered_by": { "type": "string" },
+          "event_id": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

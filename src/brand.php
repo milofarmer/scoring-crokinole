@@ -40,9 +40,10 @@ function crok_head(string $title, bool $bigscreen = false): void {
 HTML;
 }
 
-/** Minimal page switcher shared by all three screens. */
+/** Minimal page switcher shared by every screen. */
 function crok_nav(string $active): string {
-    $items = ['index.php' => 'Score', 'board.php' => 'Board', 'season.php' => 'Season', 'admin.php' => 'Organizer'];
+    $items = ['index.php' => 'Score', 'board.php' => 'Board', 'season.php' => 'Season',
+              'admin.php' => 'Organizer', 'api-docs.php' => 'API'];
     $h = '<nav class="pagenav">';
     foreach ($items as $href => $label) {
         $cur = $active === $href ? ' aria-current="page"' : '';
