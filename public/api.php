@@ -117,6 +117,7 @@ function crok_state(PDO $db, array $ev): array {
             'poule_id' => (int)$m['poule_id'],
             'round' => (int)$m['round'],
             'table_no' => (int)$m['table_no'],
+            'phys_table' => $m['phys_table'] === null ? null : (int)$m['phys_table'],
             'team_a' => $a ? ['id' => (int)$a['id'], 'name' => $a['name'], 'number' => (int)$a['number']] : null,
             'team_b' => $b ? ['id' => (int)$b['id'], 'name' => $b['name'], 'number' => (int)$b['number']] : null,
             'points_a' => $m['points_a'] === null ? null : (int)$m['points_a'],
@@ -184,6 +185,7 @@ try {
         // What is on each table right now, so a machine can map its camera/table to a match.
         $ev = crok_require_machine($db, $in);
         crok_ensure_match_codes($db, (int)$ev['id']);
+        crok_ensure_physical_tables($db, (int)$ev['id']);
         $round = (int)($in['round'] ?? $ev['current_round']);
         $poules = [];
         foreach (crok_poules($db, (int)$ev['id']) as $p) $poules[(int)$p['id']] = $p['name'];
@@ -193,7 +195,11 @@ try {
         foreach (crok_matches($db, (int)$ev['id'], $round) as $m) {
             $out[] = [
                 'match_code' => $m['match_code'], 'match_id' => (int)$m['id'],
-                'round' => (int)$m['round'], 'table' => (int)$m['table_no'],
+                'round' => (int)$m['round'],
+                // The table as it stands in the hall, which is what a camera sees.
+                'table' => $m['phys_table'] === null ? null : (int)$m['phys_table'],
+                // The old within-the-poule number, still on the players' schedule.
+                'poule_table' => (int)$m['table_no'],
                 'poule' => $poules[(int)$m['poule_id']] ?? null,
                 'phase' => $m['phase'] ?? 'poule', 'bracket' => $m['bracket'],
                 'team_a' => ['id' => (int)$m['team_a_id'], 'name' => $teams[(int)$m['team_a_id']] ?? null],
@@ -209,6 +215,7 @@ try {
     case 'ingest_score': {
         $ev = crok_require_machine($db, $in);
         crok_ensure_match_codes($db, (int)$ev['id']);
+        crok_ensure_physical_tables($db, (int)$ev['id']);
         $eventId = (int)$ev['id'];
 
         // Resolve the target match: match_code (preferred) | match_id | table (+round, +poule).
@@ -224,16 +231,26 @@ try {
             $m = $st->fetch() ?: null;
             if (!$m) crok_fail('Unknown match_id.', 404);
         } elseif (isset($in['table'])) {
+            // A table number means the table in the hall. That is one match per
+            // round, so a camera above it never has to know which poule is
+            // sitting there. The old per-poule numbering is still accepted when
+            // a poule is named with it, for anything drawn before tables were
+            // numbered through.
             $round = (int)($in['round'] ?? $ev['current_round']);
-            $cands = array_values(array_filter(crok_matches($db, $eventId, $round),
-                fn($x) => (int)$x['table_no'] === (int)$in['table']));
-            if (!empty($in['poule'])) {
-                $pid = null;
-                foreach (crok_poules($db, $eventId) as $p) if (strcasecmp($p['name'], (string)$in['poule']) === 0) $pid = (int)$p['id'];
-                $cands = array_values(array_filter($cands, fn($x) => (int)$x['poule_id'] === $pid));
+            $all = crok_matches($db, $eventId, $round);
+            $want = (int)$in['table'];
+
+            $cands = array_values(array_filter($all, fn($x) => $x['phys_table'] !== null && (int)$x['phys_table'] === $want));
+            if (count($cands) === 0) {
+                $cands = array_values(array_filter($all, fn($x) => (int)$x['table_no'] === $want));
+                if (!empty($in['poule'])) {
+                    $pid = null;
+                    foreach (crok_poules($db, $eventId) as $p) if (strcasecmp($p['name'], (string)$in['poule']) === 0) $pid = (int)$p['id'];
+                    $cands = array_values(array_filter($cands, fn($x) => (int)$x['poule_id'] === $pid));
+                }
             }
-            if (count($cands) === 0) crok_fail('No match at that table in round ' . $round . '.', 404);
-            if (count($cands) > 1) crok_fail('Table ' . (int)$in['table'] . ' is ambiguous in round ' . $round .
+            if (count($cands) === 0) crok_fail('No match at table ' . $want . ' in round ' . $round . '.', 404);
+            if (count($cands) > 1) crok_fail('Table ' . $want . ' is ambiguous in round ' . $round .
                 ' (' . count($cands) . ' matches). Send match_code, or add "poule".', 409);
             $m = $cands[0];
         } else {
@@ -359,6 +376,7 @@ try {
             $b = isset($byId[(int)$m['team_b_id']]) ? $byId[(int)$m['team_b_id']] : null;
             $rounds[(int)$m['round']][] = [
                 'poule_id' => (int)$m['poule_id'], 'table_no' => (int)$m['table_no'],
+                'phys_table' => $m['phys_table'] === null ? null : (int)$m['phys_table'],
                 'a' => $a ? $a['name'] : '—', 'b' => $b ? $b['name'] : null,
                 'sets_a' => $m['points_a'] === null ? null : (int)$m['points_a'],
                 'sets_b' => $m['points_b'] === null ? null : (int)$m['points_b'],

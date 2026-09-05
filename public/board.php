@@ -205,7 +205,7 @@ function standTable(rows,start,compact){
 /* ---- per table (current round) ---- */
 function renderTables(){
   if(STATE.event.is_knockout){
-    const ms=(STATE.round_matches||[]).slice().sort((a,b)=>a.table_no-b.table_no);
+    const ms=(STATE.round_matches||[]).slice().sort((a,b)=>(a.phys_table||a.table_no)-(b.phys_table||b.table_no));
     let html='<div class="card"><h2><span class="dot" style="background:var(--gold-2)"></span>Knockout · '+esc(STATE.event.round_label)+'</h2><div class="tablegrid">';
     ms.forEach(m=>html+=tcard(m)); return html+'</div></div>';
   }
@@ -213,7 +213,7 @@ function renderTables(){
   const poules = STATE.poules.length?STATE.poules:[{id:0,name:''}];
   let html='';
   poules.forEach((p,i)=>{
-    const ms=(byP[p.id]||[]).sort((a,b)=>a.table_no-b.table_no);
+    const ms=(byP[p.id]||[]).sort((a,b)=>(a.phys_table||a.table_no)-(b.phys_table||b.table_no));
     html+='<div class="card"><h2><span class="dot" style="background:'+pouleColors[i%pouleColors.length]+'"></span>'+pName(p)+' · Round '+STATE.event.current_round+'</h2><div class="tablegrid">';
     ms.forEach(m=>html+=tcard(m));
     html+='</div></div>';
@@ -227,7 +227,7 @@ function tcard(m){
   let st,cls; if(!m.team_b){st='bye';cls='pending';} else if(m.scored){st='final';cls='done';}
     else if(m.status==='progress'){st='playing…';cls='progress';} else {st='to play';cls='pending';}
   return '<div class="tcard'+(m.status==='progress'?' live':'')+'">'
-    +'<div class="tnum">TABLE '+m.table_no+(m.match_code?' <span class="mcode">#'+m.match_code+'</span>':'')+'</div>'
+    +'<div class="tnum">TABLE '+(m.phys_table||m.table_no)+(m.match_code?' <span class="mcode">#'+m.match_code+'</span>':'')+'</div>'
     +'<div class="side'+(aWin?' win':'')+'"><span class="nm"><span class="dot disc-a"></span><b>'+a+'</b></span><span class="sc">'+sa+'</span></div>'
     +'<div class="side'+(bWin?' win':'')+'"><span class="nm"><span class="dot disc-b"></span><b>'+b+'</b></span><span class="sc">'+sb+'</span></div>'
     +'<div class="st '+cls+'">'+st+'</div></div>';

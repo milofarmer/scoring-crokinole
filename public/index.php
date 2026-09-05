@@ -181,7 +181,7 @@ function renderPlay(){
   $('#byeCard').classList.add('hidden'); $('#waitCard').classList.add('hidden'); $('#matchCard').classList.remove('hidden');
 
   const A=myMatch.team_a, B=myMatch.team_b;
-  $('#tableNo').textContent=myMatch.table_no;
+  $('#tableNo').textContent = myMatch.phys_table || myMatch.table_no;
   const rnd = myMatch.round || (STATE&&STATE.event.current_round);
   const ctx = myMatch.phase==='ko' ? (myMatch.bracket||'Knockout') : ((pouleName(myMatch.poule_id)?'Poule '+pouleName(myMatch.poule_id)+' · ':'')+'Round '+rnd);
   $('#pouleLine').textContent=ctx+(myMatch.match_code?' · #'+myMatch.match_code:'')+' · 4 sets';

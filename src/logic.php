@@ -385,6 +385,9 @@ function crok_generate_ko(PDO $db, array $event, int $perPoule, int $wildcards =
     }
 
     crok_advance_bracket($db, $event); // resolve byes immediately
+    // Number the tables for every knockout round, so the jury and any camera can
+    // find a match the same way they do in the poules.
+    for ($k = 1; $k <= $rounds; $k++) crok_assign_physical_tables($db, $eventId, $nr + $k);
     return ['created' => (int)($M / 2), 'round' => $r1, 'label' => crok_ko_label($M / 2), 'bracket_size' => $M];
 }
 
@@ -444,6 +447,42 @@ function crok_advance_bracket(PDO $db, array $event): void {
  * Round 1 is random; later rounds are Swiss (rank order, rematches avoided).
  * $force wipes any existing matches for the round first.
  */
+/**
+ * Number the real tables in the hall for one round.
+ *
+ * table_no counts within a poule, so with eleven poules there are eleven
+ * matches all calling themselves "table 1". That is fine for a player reading
+ * a schedule next to their poule name, and useless to anything that sees the
+ * hall as it actually is: a camera above table 7 has no idea which poule it is
+ * looking at, and the jury walking the floor counts tables, not poules.
+ *
+ * So every match in a round also gets the number of the table it is played on,
+ * counted straight through the hall. Byes get none: nobody sits at a table.
+ */
+function crok_assign_physical_tables(PDO $db, int $eventId, int $round): void {
+    $st = $db->prepare("SELECT id, team_b_id FROM crok_match
+                         WHERE event_id=? AND round=? ORDER BY poule_id, table_no, id");
+    $st->execute([$eventId, $round]);
+    $up = $db->prepare("UPDATE crok_match SET phys_table=? WHERE id=?");
+    $table = 1;
+    foreach ($st->fetchAll() as $m) {
+        $isBye = $m['team_b_id'] === null || (int)$m['team_b_id'] === 0;
+        $up->execute([$isBye ? null : $table++, (int)$m['id']]);
+    }
+}
+
+/**
+ * Number the tables for any round that has none, the way match codes are
+ * backfilled. A tournament drawn before tables were numbered through still
+ * works, without the organiser having to know to run anything.
+ */
+function crok_ensure_physical_tables(PDO $db, int $eventId): void {
+    $st = $db->prepare("SELECT DISTINCT round FROM crok_match
+                         WHERE event_id=? AND phys_table IS NULL AND team_b_id IS NOT NULL AND team_b_id<>0");
+    $st->execute([$eventId]);
+    foreach ($st->fetchAll() as $r) crok_assign_physical_tables($db, $eventId, (int)$r['round']);
+}
+
 function crok_generate_round(PDO $db, array $event, int $round, bool $force = false): array {
     $eventId = (int)$event['id'];
 
@@ -494,5 +533,6 @@ function crok_generate_round(PDO $db, array $event, int $round, bool $force = fa
             $created++;
         }
     }
+    crok_assign_physical_tables($db, $eventId, $round);
     return ['created' => $created];
 }

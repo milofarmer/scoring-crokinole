@@ -68,6 +68,7 @@ function crok_migrate(PDO $pdo, string $driver): void {
     try { $pdo->exec("ALTER TABLE crok_event ADD COLUMN api_key TEXT"); } catch (Throwable $e) {}
     try { $pdo->exec("ALTER TABLE crok_event ADD COLUMN bronze_final INTEGER DEFAULT 1"); } catch (Throwable $e) {}
 
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS crok_poule (
         id        $pk,
         event_id  INTEGER,
@@ -123,6 +124,7 @@ function crok_migrate(PDO $pdo, string $driver): void {
         poule_id   INTEGER,
         round      INTEGER,
         table_no   INTEGER,
+        phys_table INTEGER,
         team_a_id  INTEGER,
         team_b_id  INTEGER,
         points_a   INTEGER,
@@ -138,7 +140,8 @@ function crok_migrate(PDO $pdo, string $driver): void {
         entered_at INTEGER,
         entered_by TEXT
     )$eng");
-    foreach (['phase TEXT', 'shootout_winner INTEGER', 'bracket TEXT', 'match_code TEXT', 'sets_json TEXT'] as $add) {
+    foreach (['phase TEXT', 'shootout_winner INTEGER', 'bracket TEXT', 'match_code TEXT', 'sets_json TEXT',
+              'phys_table INTEGER'] as $add) {
         try { $pdo->exec("ALTER TABLE crok_match ADD COLUMN $add"); } catch (Throwable $e) {}
     }
 }
