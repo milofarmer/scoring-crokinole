@@ -2,8 +2,9 @@
  * Domain vocabulary for the tournament and the season ranking.
  *
  * Scoring model: a match is 4 sets; each set records points and 20's for both
- * teams. The match is won on TOTAL points over the sets (win 2 / tie 1 / loss 0);
- * total 20's is the ranking tiebreak.
+ * teams. Each set is won by whoever scored more IN THAT SET and pays 2, or 1
+ * each when level, so a match shares out 8 points. Points scored across the
+ * sets decide nothing on their own. Total 20's is the ranking tiebreak.
  */
 
 export type MatchPhase = 'poule' | 'ko';
@@ -82,8 +83,6 @@ export interface StandingRow {
   readonly losses: number;
   readonly points: number;
   readonly twenties: number;
-  readonly pointsFor: number;
-  readonly pointsAgainst: number;
 }
 
 /** A standing joined to the team, as ranked within its poule. */

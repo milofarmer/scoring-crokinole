@@ -188,23 +188,9 @@ table.stand .players { font-size:12px; color:var(--muted); }
 .setcell.sel-b { background:var(--ink); border-color:var(--ink); color:#fff; font-weight:700; }
 .setcell.sel-t { background:var(--gold-soft); border-color:var(--gold-2); color:#6a5326; font-weight:700; }
 
-/* tennis-style per-set scoreboard */
-.tennis { display:grid; grid-template-columns:30px repeat(4,1fr) 42px; gap:6px; align-items:stretch; margin-top:6px; }
-.tennis .hd { font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase;
   color:var(--muted); text-align:center; align-self:end; padding-bottom:2px; }
-.tennis .rl { display:flex; align-items:center; justify-content:center; }
-.tennis .rl .dot { width:11px; height:11px; border-radius:50%; }
-.tennis .rl.a .dot { background:var(--disc-a); border:1.5px solid var(--disc-edge); }
-.tennis .rl.b .dot { background:var(--disc-b); }
-.tennis .scell { display:flex; flex-direction:column; gap:3px; }
-.tennis .scell .pt { height:46px; font-family:var(--mono); font-size:21px; font-weight:700; text-align:center;
   border:2px solid var(--line); border-radius:10px; background:#fff; padding:0; width:100%; }
-.tennis .scell .tw { height:26px; font-family:var(--mono); font-size:12px; text-align:center; color:var(--muted);
   border:1.5px solid var(--line); border-radius:8px; background:var(--panel-2); padding:0; width:100%; }
-.tennis .scell .pt:focus, .tennis .scell .tw:focus { outline:none; border-color:var(--gold-2); box-shadow:0 0 0 3px var(--gold-soft); }
-.tennis .tot { display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-weight:700; font-size:22px; }
-.tennis .tot.win { color:var(--green); }
-.tennis-legend { font-family:var(--mono); font-size:11px; color:var(--muted-2); text-align:center; margin-top:8px; }
 
 /* best-of-3 knockout shoot-out */
 .sogrid { display:grid; grid-template-columns:56px 1fr 1fr; gap:6px; align-items:stretch; }
@@ -227,3 +213,92 @@ table.stand .players { font-size:12px; color:var(--muted); }
 .twenties2 .t2lab { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em;
   margin-bottom:7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .twenties2 .t2lab b { color:var(--ink); }
+
+/* ---- score entry, one set at a time ----
+   Four sets side by side does not fit a phone: the boxes end up too small to
+   hit and it is easy to put a score against the wrong set. */
+.setsteps { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:14px; }
+.setsteps .step { display:flex; flex-direction:column; align-items:center; gap:2px;
+  background:transparent; border:2px solid var(--line); border-radius:10px; padding:7px 2px 6px;
+  cursor:pointer; font:inherit; color:var(--muted); }
+.setsteps .step .n { font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase; }
+.setsteps .step .sc { font-family:var(--mono); font-size:13px; font-weight:700; color:var(--muted-2); }
+.setsteps .step.done .sc { color:var(--ink); }
+.setsteps .step.on { border-color:var(--ink); color:var(--ink); }
+.setsteps .step .who { width:100%; height:3px; border-radius:2px; background:transparent; margin-top:3px; }
+.setsteps .step .who.a { background:var(--disc-a); box-shadow:inset 0 0 0 1px var(--disc-edge); }
+.setsteps .step .who.b { background:var(--disc-b); }
+
+.setcard { margin-top:12px; border:1px solid var(--line); border-radius:14px; padding:14px; background:var(--panel); }
+.setcard .setttl { font-size:11px; letter-spacing:.14em; color:var(--muted); text-align:center; margin-bottom:12px; }
+.serow { display:grid; grid-template-columns:1fr 84px 58px; gap:8px; align-items:end; }
+.serow + .serow { margin-top:12px; }
+.serow .who { display:flex; align-items:center; gap:8px; min-width:0; padding-bottom:10px; }
+.serow .who .dot { width:14px; height:14px; border-radius:50%; flex:none; }
+.serow.a .who .dot { background:var(--disc-a); border:1.5px solid var(--disc-edge); }
+.serow.b .who .dot { background:var(--disc-b); }
+/* Wrap rather than truncate: you have to be able to read which team you are
+   entering a score for. */
+.serow .who .nm { font-weight:600; line-height:1.2; overflow-wrap:break-word; min-width:0; }
+.serow .fld { display:flex; flex-direction:column; gap:3px; }
+.serow .fld > span { font-family:var(--mono); font-size:10px; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--muted-2); }
+.serow .fld input { height:52px; font-family:var(--mono); font-size:24px; font-weight:700;
+  text-align:center; width:100%; }
+.serow .fld.tw input { height:52px; font-size:16px; font-weight:400; color:var(--muted); }
+.serow .fld input:focus { outline:none; border-color:var(--gold-2); box-shadow:0 0 0 3px var(--gold-soft); }
+
+.setout { margin-top:12px; text-align:center; font-size:14px; color:var(--muted-2); min-height:20px; }
+.setout.win { color:var(--green); font-weight:600; }
+.setout.tie { color:var(--muted); }
+
+.setmove { display:flex; align-items:center; gap:10px; margin-top:12px; }
+.setmove .menu-btn { flex:none; }
+.setmove .menu-btn:disabled { opacity:.35; cursor:default; }
+/* The running match score: sets won, out of eight. */
+.matchscore { flex:1; text-align:center; font-size:26px; font-weight:700; letter-spacing:.04em; }
+.matchscore.a, .matchscore.b { color:var(--green); }
+
+/* ---- phones ----
+   Scoring happens standing at a table holding a phone, often with the keyboard
+   covering the bottom half of the screen. Everything needed to enter a set and
+   confirm it has to be reachable without hunting: the set picker, the four
+   inputs, the running score and the button. Anything that only repeats
+   information gives up its space. */
+@media (max-width: 460px) {
+  /* Site navigation is for the organiser. A player arrived here by scanning the
+     board and wants one screen, not four. The bar at the bottom of the page
+     already covers the three views they do need. */
+  .pagenav { display:none; }
+
+  .wrap { padding-left:12px; padding-right:12px; }
+  .topbar { gap:10px; padding:10px 0 12px; }
+  .topbar .mark { width:34px; height:34px; }
+  .topbar .eyebrow { font-size:10px; letter-spacing:.14em; }
+  .topbar h1 { font-size:20px; }
+
+  .card.matchcard { padding:14px 12px; }
+  .tablebadge { padding:6px 14px; font-size:15px; }
+
+  /* The two teams are named again on every set row just below, so this line is
+     saying it twice. */
+  .matchcard .teams2 { display:none; }
+
+  .setsteps { margin-top:10px; gap:5px; }
+  .setsteps .step { padding:5px 2px 4px; }
+  .setsteps .step .sc { font-size:12px; }
+
+  .setcard { margin-top:9px; padding:11px 10px; }
+  .setcard .setttl { margin-bottom:8px; }
+  .serow { grid-template-columns:1fr 78px 54px; gap:7px; }
+  .serow + .serow { margin-top:9px; }
+  .serow .who { padding-bottom:8px; }
+  .serow .fld input { height:46px; font-size:22px; }
+  .serow .fld.tw input { height:46px; font-size:15px; }
+  .setout { margin-top:9px; font-size:13px; min-height:17px; }
+
+  .setmove { margin-top:9px; }
+  .matchscore { font-size:23px; }
+  .result-banner { padding:9px 12px; font-size:14px; }
+  .btn.wide { margin-top:9px !important; }
+}

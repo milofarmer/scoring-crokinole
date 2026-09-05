@@ -6,9 +6,14 @@
  *   - the NUMBER ONE spot only: a tie on points+20's is broken by the head-to-head
  *     result (onderling resultaat). Lower placings never use head-to-head.
  * Team number is the final, stable fallback.
+ *
+ * Match points are earned per set: 2 for a set won, 1 each for a level set, so
+ * eight are shared out per match. Points scored inside a set decide that set and
+ * nothing else, so the table does not carry them: a team's total scored has no
+ * bearing on where it finishes.
  */
-import type { EventConfig, Match, RankedTeam, StandingRow, Team } from '../types/index.ts';
-import { countsTowardStandings, isBye, matchPoints } from './scoring.ts';
+import type { Match, RankedTeam, StandingRow, Team } from '../types/index.ts';
+import { countsTowardStandings, isBye, MAX_MATCH_POINTS, matchPoints } from './scoring.ts';
 
 function emptyRow(teamId: number): StandingRow {
   return {
@@ -19,16 +24,12 @@ function emptyRow(teamId: number): StandingRow {
     losses: 0,
     points: 0,
     twenties: 0,
-    pointsFor: 0,
-    pointsAgainst: 0,
   };
 }
 
 function addSide(
   row: StandingRow,
   gained: number,
-  pointsFor: number,
-  pointsAgainst: number,
   twenties: number,
   outcome: 'win' | 'tie' | 'loss',
 ): StandingRow {
@@ -40,8 +41,6 @@ function addSide(
     losses: row.losses + (outcome === 'loss' ? 1 : 0),
     points: row.points + gained,
     twenties: row.twenties + twenties,
-    pointsFor: row.pointsFor + pointsFor,
-    pointsAgainst: row.pointsAgainst + pointsAgainst,
   };
 }
 
@@ -52,7 +51,6 @@ function addSide(
 export function computeStandings(
   teams: readonly Team[],
   matches: readonly Match[],
-  config: Pick<EventConfig, 'pointsWin' | 'pointsTie'>,
 ): Map<number, StandingRow> {
   const table = new Map<number, StandingRow>();
   for (const team of teams) table.set(team.id, emptyRow(team.id));
@@ -64,23 +62,23 @@ export function computeStandings(
     if (isBye(match)) {
       const id = match.teamAId;
       const row = id === null ? undefined : table.get(id);
-      if (row) table.set(row.teamId, addSide(row, config.pointsWin, 0, 0, 0, 'win'));
+      if (row) table.set(row.teamId, addSide(row, MAX_MATCH_POINTS, 0, 'win'));
       continue;
     }
     if (match.teamAId === null || match.teamBId === null) continue;
     if (match.pointsA === null || match.pointsB === null) continue;
 
-    const gained = matchPoints(match, config.pointsWin, config.pointsTie);
+    const gained = matchPoints(match);
     const rowA = table.get(match.teamAId);
     const rowB = table.get(match.teamBId);
     const outcomeA = match.pointsA > match.pointsB ? 'win' : match.pointsA === match.pointsB ? 'tie' : 'loss';
     const outcomeB = match.pointsB > match.pointsA ? 'win' : match.pointsA === match.pointsB ? 'tie' : 'loss';
 
     if (rowA) {
-      table.set(rowA.teamId, addSide(rowA, gained.a, match.pointsA, match.pointsB, match.twentiesA, outcomeA));
+      table.set(rowA.teamId, addSide(rowA, gained.a, match.twentiesA, outcomeA));
     }
     if (rowB) {
-      table.set(rowB.teamId, addSide(rowB, gained.b, match.pointsB, match.pointsA, match.twentiesB, outcomeB));
+      table.set(rowB.teamId, addSide(rowB, gained.b, match.twentiesB, outcomeB));
     }
   }
   return table;
@@ -90,7 +88,6 @@ export function computeStandings(
 export function headToHeadPoints(
   group: readonly RankedTeam[],
   matches: readonly Match[],
-  config: Pick<EventConfig, 'pointsWin' | 'pointsTie'>,
 ): Map<number, number> {
   const ids = new Set(group.map((row) => row.teamId));
   const points = new Map<number, number>();
@@ -102,7 +99,7 @@ export function headToHeadPoints(
     if (teamAId === null || teamBId === null) continue;
     if (!ids.has(teamAId) || !ids.has(teamBId)) continue;
 
-    const gained = matchPoints(match, config.pointsWin, config.pointsTie);
+    const gained = matchPoints(match);
     points.set(teamAId, (points.get(teamAId) ?? 0) + gained.a);
     points.set(teamBId, (points.get(teamBId) ?? 0) + gained.b);
   }
@@ -123,10 +120,9 @@ function byPointsThenTwenties(a: RankedTeam, b: RankedTeam): number {
 export function rankPoule(
   teams: readonly Team[],
   matches: readonly Match[],
-  config: Pick<EventConfig, 'pointsWin' | 'pointsTie'>,
   pouleId: number,
 ): RankedTeam[] {
-  const standings = computeStandings(teams, matches, config);
+  const standings = computeStandings(teams, matches);
   const rows: RankedTeam[] = [];
   for (const team of teams) {
     if (team.pouleId !== pouleId) continue;
@@ -150,7 +146,7 @@ export function rankPoule(
   );
   if (tiedForFirst.length < 2) return rows;
 
-  const h2h = headToHeadPoints(tiedForFirst, matches, config);
+  const h2h = headToHeadPoints(tiedForFirst, matches);
   tiedForFirst.sort((a, b) => {
     const diff = (h2h.get(b.teamId) ?? 0) - (h2h.get(a.teamId) ?? 0);
     return diff !== 0 ? diff : a.number - b.number;

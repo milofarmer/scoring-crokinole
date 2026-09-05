@@ -27,8 +27,9 @@
       </div>
       <div class="row">
         <label class="field"><span class="lab">Rounds</span><input id="cRounds" class="num" type="number" value="4"></label>
-        <label class="field"><span class="lab">Win pts</span><input id="cWin" class="num" type="number" value="2"></label>
-        <label class="field"><span class="lab">Tie pts</span><input id="cTie" class="num" type="number" value="1"></label>
+        <p class="muted" style="font-size:13px;grid-column:1/-1;margin:0">
+          Scoring is fixed: each of the 4 sets is worth 2 to the team that wins it,
+          or 1 each if the set is level. 8 points per match.</p>
       </div>
       <button class="btn wide" id="createBtn">Create &amp; start</button>
     </div>
@@ -45,8 +46,6 @@
       </div>
       <div class="row">
         <label class="field"><span class="lab">Rounds</span><input id="sRounds" class="num" type="number"></label>
-        <label class="field"><span class="lab">Win</span><input id="sWin" class="num" type="number"></label>
-        <label class="field"><span class="lab">Tie</span><input id="sTie" class="num" type="number"></label>
         <label class="field"><span class="lab">Status</span>
           <select id="sStatus"><option value="running">running</option><option value="finished">finished</option><option value="setup">setup</option></select></label>
       </div>
@@ -219,7 +218,7 @@ $('#loginBtn').onclick = async ()=>{
 };
 $('#createBtn').onclick = async ()=>{
   const r = await api('create_event', {name:$('#cName').value, play_code:$('#cCode').value,
-    admin_pin:$('#cPin').value, num_rounds:+$('#cRounds').value, points_win:+$('#cWin').value, points_tie:+$('#cTie').value});
+    admin_pin:$('#cPin').value, num_rounds:+$('#cRounds').value});
   if(!r.ok){ toast(r.error,true); return; }
   setPin($('#cPin').value.trim()); show();
 };
@@ -235,7 +234,7 @@ async function refresh(){
   A = r; curRound = r.round;
   // event fields
   $('#sName').value=r.event.name||''; $('#sCode').value=r.event.play_code||'';
-  $('#sRounds').value=r.event.num_rounds; $('#sWin').value=r.event.points_win; $('#sTie').value=r.event.points_tie;
+  $('#sRounds').value=r.event.num_rounds;
   $('#sStatus').value=r.event.status;
   $('#apiKey').value=r.event.api_key||'';
   fillRoundSelects();
@@ -290,7 +289,7 @@ $('#koNext').onclick=async ()=>{
 
 $('#saveEvent').onclick = async ()=>{
   const r = await api('update_event', {name:$('#sName').value, play_code:$('#sCode').value,
-    num_rounds:+$('#sRounds').value, points_win:+$('#sWin').value, points_tie:+$('#sTie').value,
+    num_rounds:+$('#sRounds').value,
     current_round:+$('#sCurrent').value, status:$('#sStatus').value});
   if(r.ok){ toast('Saved'); refresh(); } else toast(r.error,true);
 };
@@ -379,10 +378,10 @@ function renderMatches(){
       html += `<div style="display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap">
         <span class="mono muted" style="flex:0 0 auto;min-width:32px">T${m.table_no}${m.match_code?` <span style="color:var(--gold-2)">#${m.match_code}</span>`:''}</span>
         <span style="flex:1 1 150px"><span class="pill a">A</span> ${esc(a?a.name:'—')}</span>
-        <input class="num" data-f="points_a" data-m="${m.id}" type="number" min="0" style="flex:0 0 60px" value="${m.points_a??''}" placeholder="pts" title="total points">
+        <input class="num" data-f="points_a" data-m="${m.id}" type="number" min="0" style="flex:0 0 60px" value="${m.points_a??''}" placeholder="pts" title="match points (2 per set won)">
         <input class="num" data-f="twenties_a" data-m="${m.id}" type="number" style="flex:0 0 54px" value="${m.twenties_a||0}" title="total 20s">
         <span style="flex:1 1 150px"><span class="pill b">B</span> ${b?esc(b.name):'<span class=muted>bye</span>'}</span>
-        <input class="num" data-f="points_b" data-m="${m.id}" type="number" min="0" style="flex:0 0 60px" value="${m.points_b??''}" placeholder="pts" title="total points" ${b?'':'disabled'}>
+        <input class="num" data-f="points_b" data-m="${m.id}" type="number" min="0" style="flex:0 0 60px" value="${m.points_b??''}" placeholder="pts" title="match points (2 per set won)" ${b?'':'disabled'}>
         <input class="num" data-f="twenties_b" data-m="${m.id}" type="number" style="flex:0 0 54px" value="${m.twenties_b||0}" title="20s" ${b?'':'disabled'}>
         ${m.phase==='ko'&&b?`<select data-f="shootout_winner" data-m="${m.id}" style="flex:0 0 130px" title="shoot-out winner (2–2 only)">
           <option value="">shoot-out…</option>

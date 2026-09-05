@@ -41,12 +41,19 @@
         <div class="tm b"><span class="dot"></span><span id="nameB">Team B</span><span id="youB" class="you-tag hidden">YOU</span></div>
       </div>
 
-      <div class="tennis" id="scoreGrid"></div>
-      <div class="tennis-legend">Top row = points · bottom = 20's · total points decides the match</div>
+      <!-- One set at a time: four sets side by side is unreadable on a phone and
+           invites entering a score against the wrong set. -->
+      <div class="setsteps" id="setSteps"></div>
+      <div class="setcard" id="setCard"></div>
+      <div class="setmove">
+        <button class="menu-btn" id="prevSet">Back</button>
+        <div class="matchscore mono" id="matchScore">0 – 0</div>
+        <button class="menu-btn" id="nextSet">Next set</button>
+      </div>
 
       <div id="banner" class="result-banner tie">Enter the points per set</div>
       <div id="shootout" class="hidden" style="margin-top:10px">
-        <div class="t2lab" style="text-align:center;margin-bottom:8px">Level after 4 sets · shoot-out (best of 3)</div>
+        <div class="t2lab" style="text-align:center;margin-bottom:8px">Level after 4 sets · shoot-out, then sudden death</div>
         <div id="soGrid" class="sogrid"></div>
         <div id="soResult" class="mono center" style="font-size:13px;margin-top:8px;color:var(--muted);height:16px"></div>
       </div>
@@ -77,7 +84,7 @@
 <script>
 const $ = s => document.querySelector(s);
 let STATE=null, team=null, myMatch=null, poll=null, dirty=false, saveTimer=null;
-let sets=[], soShots=[null,null,null], renderedMatchId=null;
+let sets=[], soShots=[null,null,null], renderedMatchId=null, currentSet=0;
 let mode='team', matchCode='';
 const ls={get:k=>localStorage.getItem('crok_'+k)||'',set:(k,v)=>localStorage.setItem('crok_'+k,v),del:k=>localStorage.removeItem('crok_'+k)};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -163,6 +170,9 @@ async function load(){
 
 /* ---- per-set (tennis-style) scoring ---- */
 function blankSets(){ return [0,1,2,3].map(()=>({pa:'',pb:'',ta:0,tb:0})); }
+/* Open on the set still to be played, so picking a match up mid-way lands in
+   the right place instead of back at set 1. */
+function firstUnfinishedSet(){ const i=sets.findIndex(s=>!setFilled(s)); return i<0?3:i; }
 function isKo(){ return myMatch && myMatch.phase==='ko'; }
 
 function renderPlay(){
@@ -180,50 +190,112 @@ function renderPlay(){
   $('#youA').classList.toggle('hidden', A.id!==myId); $('#youB').classList.toggle('hidden', B.id!==myId);
 
   // Rebuild the grid only when the match changes, so we never steal focus mid-entry.
-  if(renderedMatchId!==myMatch.id || !$('#scoreGrid').children.length){
+  if(renderedMatchId!==myMatch.id || !$('#setCard').children.length){
     sets = (myMatch.sets&&myMatch.sets.length)
       ? [0,1,2,3].map(i=>{ const s=myMatch.sets[i]||{}; return {pa:s.pa==null?'':s.pa, pb:s.pb==null?'':s.pb, ta:s.ta||0, tb:s.tb||0}; })
       : blankSets();
     const sw0 = myMatch.shootout_winner||null;
     soShots = sw0 ? [ sw0===myMatch.team_a.id?'a':'b', sw0===myMatch.team_a.id?'a':'b', null ] : [null,null,null];
-    buildTennis(); buildShootout();
+    currentSet = firstUnfinishedSet();
+    buildSetCard(); buildShootout();
     renderedMatchId=myMatch.id;
   }
+  refreshDerived();
+}
+
+/* Which side took a set, or null while it is level or unfinished. */
+function setWinner(s){
+  if(s.pa===''||s.pa==null||s.pb===''||s.pb==null) return null;
+  if(+s.pa > +s.pb) return 'a';
+  if(+s.pb > +s.pa) return 'b';
+  return null;
+}
+function setFilled(s){ return s.pa!==''&&s.pa!=null&&s.pb!==''&&s.pb!=null; }
+
+/* Match points, not points scored: every finished set pays 2 to its winner, or
+   1 each when level. Four sets, eight points. */
+function totals(){
+  let pa=0,pb=0,filled=0;
+  sets.forEach(s=>{
+    if(!setFilled(s)) return;
+    filled++;
+    const w=setWinner(s);
+    if(w==='a') pa+=2; else if(w==='b') pb+=2; else { pa++; pb++; }
+  });
+  return {pa,pb,filled};
+}
+
+/* ---- one set at a time ---- */
+
+function buildSteps(){
+  let h='';
+  for(let i=0;i<4;i++){
+    const s=sets[i], w=setWinner(s), done=setFilled(s);
+    h+='<button class="step'+(i===currentSet?' on':'')+(done?' done':'')+'" data-i="'+i+'">'
+      +'<span class="n">Set '+(i+1)+'</span>'
+      +'<span class="sc">'+(done?(s.pa+'–'+s.pb):'–')+'</span>'
+      +'<span class="who'+(w?' '+w:'')+'"></span></button>';
+  }
+  const el=$('#setSteps'); el.innerHTML=h;
+  el.querySelectorAll('.step').forEach(b=>b.onclick=()=>goSet(+b.dataset.i));
+}
+
+function buildSetCard(){
+  const A=myMatch.team_a, B=myMatch.team_b, s=sets[currentSet];
+  $('#setCard').innerHTML =
+      '<div class="setttl mono">SET '+(currentSet+1)+' OF 4</div>'
+    + srow('a', A.name, s.pa, s.ta)
+    + srow('b', B.name, s.pb, s.tb)
+    + '<div class="setout" id="setOut"></div>';
+
+  $('#setCard').querySelectorAll('input').forEach(inp=>inp.addEventListener('input',()=>{
+    const side=inp.dataset.side, k=inp.dataset.k;
+    const v = inp.value===''?'':Math.max(0,parseInt(inp.value,10)||0);
+    const cur=sets[currentSet];
+    if(k==='p') cur[side==='a'?'pa':'pb']=v; else cur[side==='a'?'ta':'tb']=(v===''?0:v);
+    refreshDerived(); scheduleSave();
+  }));
+}
+
+function srow(side,name,pv,tv){
+  return '<div class="serow '+side+'">'
+    + '<div class="who"><span class="dot"></span><span class="nm">'+esc(name)+'</span></div>'
+    + '<label class="fld"><span>Points</span>'
+      + '<input class="pt" inputmode="numeric" data-side="'+side+'" data-k="p" value="'+(pv===''||pv==null?'':pv)+'" placeholder="–"></label>'
+    + '<label class="fld tw"><span>20’s</span>'
+      + '<input inputmode="numeric" data-side="'+side+'" data-k="t" value="'+(tv?tv:'')+'" placeholder="0"></label>'
+    + '</div>';
+}
+
+/* Everything that follows from the numbers, without touching the inputs
+   themselves — rebuilding those mid-entry would steal the keyboard. */
+function refreshDerived(){
+  const s=sets[currentSet], w=setWinner(s), A=myMatch.team_a, B=myMatch.team_b;
+  const out=$('#setOut');
+  if(out){
+    if(!setFilled(s)) out.className='setout', out.textContent='Enter both scores for this set';
+    else if(w) out.className='setout win', out.textContent=esc(w==='a'?A.name:B.name)+' win set '+(currentSet+1)+' · 2–0';
+    else out.className='setout tie', out.textContent='Set '+(currentSet+1)+' is level · 1–1';
+  }
+  buildSteps();
   updateBanner();
 }
 
-function buildTennis(){
-  let h='<div class="hd"></div>';
-  for(let i=1;i<=4;i++) h+='<div class="hd">S'+i+'</div>';
-  h+='<div class="hd">Tot</div>';
-  h+='<div class="rl a"><span class="dot"></span></div>'; for(let i=0;i<4;i++) h+=scell('a',i); h+='<div class="tot" id="totA">0</div>';
-  h+='<div class="rl b"><span class="dot"></span></div>'; for(let i=0;i<4;i++) h+=scell('b',i); h+='<div class="tot" id="totB">0</div>';
-  const g=$('#scoreGrid'); g.innerHTML=h;
-  g.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',()=>{
-    const i=+inp.dataset.i, side=inp.dataset.side, k=inp.dataset.k;
-    const v = inp.value===''?'':Math.max(0,parseInt(inp.value,10)||0);
-    if(k==='p') sets[i][side==='a'?'pa':'pb']=v; else sets[i][side==='a'?'ta':'tb']=(v===''?0:v);
-    updateBanner(); scheduleSave();
-  }));
+function goSet(i){
+  currentSet=Math.max(0,Math.min(3,i));
+  buildSetCard(); refreshDerived();
+  const first=$('#setCard input'); if(first) first.focus();
 }
-function scell(side,i){
-  const s=sets[i]; const pv=side==='a'?s.pa:s.pb; const tv=side==='a'?s.ta:s.tb;
-  return '<div class="scell">'
-    +'<input class="pt" inputmode="numeric" data-side="'+side+'" data-i="'+i+'" data-k="p" value="'+(pv===''||pv==null?'':pv)+'" placeholder="–">'
-    +'<input class="tw" inputmode="numeric" data-side="'+side+'" data-i="'+i+'" data-k="t" value="'+(tv?tv:'')+'" placeholder="20s">'
-    +'</div>';
-}
-
-function totals(){
-  let pa=0,pb=0,filled=0;
-  sets.forEach(s=>{ const a=s.pa,b=s.pb; if(a!==''&&a!=null)pa+=+a; if(b!==''&&b!=null)pb+=+b;
-    if(a!==''&&a!=null&&b!==''&&b!=null)filled++; });
-  return {pa,pb,filled};
-}
+$('#prevSet').onclick=()=>goSet(currentSet-1);
+$('#nextSet').onclick=()=>goSet(currentSet+1);
 function updateBanner(){
   const {pa,pb,filled}=totals(); const A=myMatch.team_a, B=myMatch.team_b;
-  if($('#totA')){ $('#totA').textContent=pa; $('#totB').textContent=pb;
-    $('#totA').classList.toggle('win', filled===4&&pa>pb); $('#totB').classList.toggle('win', filled===4&&pb>pa); }
+  const ms=$('#matchScore');
+  if(ms){ ms.textContent=pa+' – '+pb;
+    ms.classList.toggle('a', filled===4&&pa>pb); ms.classList.toggle('b', filled===4&&pb>pa); }
+  const prev=$('#prevSet'), next=$('#nextSet');
+  if(prev) prev.disabled = currentSet===0;
+  if(next) next.disabled = currentSet===3;
   const needSO = isKo() && filled===4 && pa===pb;
   $('#shootout').classList.toggle('hidden', !needSO);
   const sw = soWinner();

@@ -8,7 +8,7 @@
  * the same round are separated by their poule record. Teams that never reached the
  * knockout follow, also on their poule record.
  */
-import type { EventConfig, Match, StandingRow, Team } from '../types/index.ts';
+import type { Match, StandingRow, Team } from '../types/index.ts';
 import { computeStandings } from './standings.ts';
 import { matchLoser, matchWinner } from './scoring.ts';
 
@@ -42,9 +42,8 @@ function pouleOrder(
 export function finalClassification(
   teams: readonly Team[],
   matches: readonly Match[],
-  config: Pick<EventConfig, 'pointsWin' | 'pointsTie'>,
 ): FinalPlace[] {
-  const standings = computeStandings(teams, matches, config);
+  const standings = computeStandings(teams, matches);
   const numberOf = new Map(teams.map((team) => [team.id, team.number]));
   const compare = pouleOrder(standings, numberOf);
 

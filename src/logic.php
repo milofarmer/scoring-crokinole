@@ -8,6 +8,20 @@ if (!defined('CROK')) { http_response_code(403); exit('forbidden'); }
 
 require_once __DIR__ . '/store.php';
 
+/**
+ * A match is four sets. Each set is won by whoever scored more points IN THAT
+ * SET and pays 2, or 1 each when the set is level, so eight points are shared
+ * out per match and a side can take anywhere from 0 to 8.
+ *
+ * The points a team scores inside a set decide that set and nothing else. A team
+ * that loses one set heavily and wins the other three narrowly has scored fewer
+ * points overall and still wins the match 6-2.
+ */
+const CROK_SET_WIN = 2;
+const CROK_SET_TIE = 1;
+const CROK_SETS_PER_MATCH = 4;
+const CROK_MAX_MATCH_POINTS = CROK_SETS_PER_MATCH * CROK_SET_WIN;
+
 function crok_json($data, int $code = 200): void {
     http_response_code($code);
     header('Content-Type: application/json; charset=utf-8');
@@ -66,13 +80,21 @@ function crok_matches(PDO $db, int $eventId, ?int $round = null): array {
 function crok_apply_score(PDO $db, array $ev, array $m, array $in, string $enteredBy = ''): array {
     $setsJson = null;
     if (isset($in['sets']) && is_array($in['sets'])) {
+        // Each set is settled on its own: 2 to whoever scored more in that set,
+        // 1 each if it is level. So points_a/points_b hold match points out of
+        // eight, NOT the points scored. A team can score far more over the four
+        // sets and still lose the match.
         $clean = []; $pa = $pb = $ta = $tb = 0;
         $val = fn($v) => ($v === '' || $v === null) ? null : max(0, (int)$v);
         foreach (array_slice($in['sets'], 0, 4) as $s) {
             $row = ['pa' => $val($s['pa'] ?? null), 'pb' => $val($s['pb'] ?? null),
                     'ta' => (int)($s['ta'] ?? 0), 'tb' => (int)($s['tb'] ?? 0)];
             $clean[] = $row;
-            $pa += $row['pa'] ?? 0; $pb += $row['pb'] ?? 0; $ta += $row['ta']; $tb += $row['tb'];
+            $ta += $row['ta']; $tb += $row['tb'];
+            if ($row['pa'] === null || $row['pb'] === null) continue;   // set not finished
+            if ($row['pa'] > $row['pb'])      { $pa += CROK_SET_WIN; }
+            elseif ($row['pb'] > $row['pa'])  { $pb += CROK_SET_WIN; }
+            else { $pa += CROK_SET_TIE; $pb += CROK_SET_TIE; }
         }
         $setsJson = json_encode($clean);
     } else {
@@ -132,7 +154,12 @@ function crok_match_scored(array $m): bool {
 
 /**
  * Compute standings for every team in an event.
- * Returns team_id => [played, wins, ties, losses, points, twenties, diff, for, against].
+ *
+ * Points are earned per set (2 for a set won, 1 each when level), so a match
+ * shares out eight and points_a/points_b already hold what each side took. They
+ * go straight into the table; there is no further win/tie award on top.
+ *
+ * Returns team_id => [played, wins, ties, losses, points, twenties].
  */
 function crok_standings(PDO $db, array $event): array {
     $teams = crok_teams($db, (int)$event['id']);
@@ -141,11 +168,9 @@ function crok_standings(PDO $db, array $event): array {
         $agg[(int)$t['id']] = [
             'team_id' => (int)$t['id'],
             'played' => 0, 'wins' => 0, 'ties' => 0, 'losses' => 0,
-            'points' => 0, 'twenties' => 0, 'for' => 0, 'against' => 0, 'diff' => 0,
+            'points' => 0, 'twenties' => 0,
         ];
     }
-    $pw = (int)$event['points_win'];
-    $pt = (int)$event['points_tie'];
 
     foreach (crok_matches($db, (int)$event['id']) as $m) {
         if (($m['phase'] ?? 'poule') !== 'poule') continue; // knockout doesn't affect poule standings
@@ -155,41 +180,36 @@ function crok_standings(PDO $db, array $event): array {
         $isBye = ($bRaw === null || (int)$bRaw === 0);
 
         if ($isBye) {
-            if (isset($agg[$a])) { $agg[$a]['played']++; $agg[$a]['wins']++; $agg[$a]['points'] += $pw; }
+            if (isset($agg[$a])) { $agg[$a]['played']++; $agg[$a]['wins']++; $agg[$a]['points'] += CROK_MAX_MATCH_POINTS; }
             continue;
         }
         $b  = (int)$bRaw;
         $pa = (int)$m['points_a']; $pb = (int)$m['points_b'];
         $ta = (int)$m['twenties_a']; $tb = (int)$m['twenties_b'];
 
-        foreach ([[$a,$pa,$pb,$ta],[$b,$pb,$pa,$tb]] as [$id,$pf,$pag,$tw]) {
+        foreach ([[$a,$pa,$pb,$ta],[$b,$pb,$pa,$tb]] as [$id,$mine,$theirs,$tw]) {
             if (!isset($agg[$id])) continue;
             $agg[$id]['played']++;
-            $agg[$id]['for'] += $pf;
-            $agg[$id]['against'] += $pag;
             $agg[$id]['twenties'] += $tw;
-            if ($pf > $pag)      { $agg[$id]['wins']++;   $agg[$id]['points'] += $pw; }
-            elseif ($pf === $pag){ $agg[$id]['ties']++;   $agg[$id]['points'] += $pt; }
-            else                 { $agg[$id]['losses']++; }
+            $agg[$id]['points'] += $mine;
+            if ($mine > $theirs)       $agg[$id]['wins']++;
+            elseif ($mine === $theirs) $agg[$id]['ties']++;
+            else                       $agg[$id]['losses']++;
         }
     }
-    foreach ($agg as &$r) $r['diff'] = $r['for'] - $r['against'];
-    unset($r);
     return $agg;
 }
 
 /** Head-to-head match points earned among a set of tied teams. */
-function crok_h2h_points(array $group, array $matches, int $pw, int $pt): array {
+function crok_h2h_points(array $group, array $matches): array {
     $ids = array_column($group, 'team_id');
     $inGroup = array_flip($ids);
     $pts = array_fill_keys($ids, 0);
     foreach ($matches as $m) {
         $a = (int)$m['team_a_id']; $b = (int)($m['team_b_id'] ?? 0);
         if (!$b || !isset($inGroup[$a]) || !isset($inGroup[$b])) continue;
-        $pa = (int)$m['points_a']; $pb = (int)$m['points_b'];
-        if ($pa > $pb)      $pts[$a] += $pw;
-        elseif ($pa < $pb)  $pts[$b] += $pw;
-        else { $pts[$a] += $pt; $pts[$b] += $pt; }
+        $pts[$a] += (int)$m['points_a'];
+        $pts[$b] += (int)$m['points_b'];
     }
     return $pts;
 }
@@ -225,7 +245,7 @@ function crok_ranked(PDO $db, array $event, ?int $pouleId = null): array {
         }
         if (count($lead) > 1) {
             $matches = array_filter(crok_matches($db, (int)$event['id']), 'crok_match_scored');
-            $h2h = crok_h2h_points($lead, $matches, (int)$event['points_win'], (int)$event['points_tie']);
+            $h2h = crok_h2h_points($lead, $matches);
             usort($lead, function ($x, $y) use ($h2h) {
                 if ($h2h[$y['team_id']] !== $h2h[$x['team_id']]) return $h2h[$y['team_id']] <=> $h2h[$x['team_id']];
                 return $x['number'] <=> $y['number'];

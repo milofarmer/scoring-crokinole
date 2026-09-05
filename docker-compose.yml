@@ -25,6 +25,8 @@ services:
       # Live-edit: source is bind-mounted, so changes show on reload (no rebuild).
       - ./public:/var/www/html/public
       - ./src:/var/www/html/src
+      # Maintenance scripts an organiser may need to run against a live event.
+      - ./tools:/var/www/html/tools
       - crok_data:/var/www/html/data
     restart: unless-stopped
 

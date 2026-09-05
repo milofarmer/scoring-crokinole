@@ -93,7 +93,7 @@ export function buildState(context: ApiContext, event: StoredEvent): PublicState
 
   const standings: Record<string, readonly RankedTeam[]> = {};
   for (const poule of poules) {
-    standings[String(poule.id)] = rankPoule(teams, allMatches, event, poule.id);
+    standings[String(poule.id)] = rankPoule(teams, allMatches, poule.id);
   }
 
   const isKnockout = event.currentRound > event.numRounds;

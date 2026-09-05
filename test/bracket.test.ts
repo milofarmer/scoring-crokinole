@@ -19,8 +19,6 @@ function ranked(teamId: number, points: number, twenties: number, pouleId = 1): 
     losses: 0,
     points,
     twenties,
-    pointsFor: 0,
-    pointsAgainst: 0,
     name: `Team ${teamId}`,
     number: teamId,
     pouleId,
