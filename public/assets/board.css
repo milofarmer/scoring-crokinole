@@ -58,23 +58,32 @@
 .bracket2 { --cw:clamp(8px,.9vw,20px); display:flex; align-items:stretch; justify-content:center;
   gap:clamp(6px,1.2vw,24px); width:100%; height:78vh; }
 .bracket2 .half { flex:1 1 0; display:flex; align-items:stretch; min-width:0; }
-.bracket2 .half.left { justify-content:flex-end; direction:rtl; }
-.bracket2 .half.right { justify-content:flex-start; }
+.bracket2 .half.left { direction:rtl; }
 .bracket2 .center { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; justify-content:center; }
 .bracket2 .center .clabel { font-family:var(--mono); font-size:clamp(9px,.8vw,13px); text-transform:uppercase;
   letter-spacing:.1em; color:var(--muted); margin-bottom:6px; }
 
-.bracket2 .tnode { display:flex; align-items:center; }
-.bracket2 .tkids { display:flex; flex-direction:column; justify-content:space-around; align-self:stretch; }
+/* Every round is a column of equal width, so a card is as wide as the screen
+   allows and a team name can actually be read from the back of the hall.
+   --kids is how many rounds sit inside this node's children, set when the tree
+   is built; without it the deeper rounds would each be squeezed to half. */
+.bracket2 .tnode { display:flex; align-items:center; min-width:0; }
+.bracket2 .half > .tnode { flex:1 1 0; }
+/* The gap matters: without it two matches in the same round sit flush against
+   each other and read as one four-row card. */
+.bracket2 .tkids { display:flex; flex-direction:column; justify-content:space-around; align-self:stretch;
+  flex:var(--kids,1) 1 0; min-width:0; gap:clamp(8px,1vw,18px); }
 .bracket2 .half.left .bm { direction:ltr; }
-.bracket2 .bm { flex:0 0 auto; background:var(--panel); border:1px solid var(--line); border-radius:9px;
-  overflow:hidden; box-shadow:var(--shadow); position:relative; width:clamp(96px,8.5vw,190px); }
-.bracket2 .bm.big { width:clamp(120px,11vw,230px); border-color:var(--gold-2); box-shadow:0 0 0 2px var(--gold-soft); }
-.bracket2 .bmt { display:flex; align-items:center; gap:6px; padding:clamp(4px,.55vw,10px) clamp(6px,.7vw,11px);
-  font-size:clamp(10px,.9vw,17px); color:var(--muted); }
+.bracket2 .bm { flex:1 1 0; min-width:0; background:var(--panel); border:1px solid var(--line); border-radius:9px;
+  overflow:hidden; box-shadow:var(--shadow); position:relative; }
+.bracket2 .bm.big { flex:0 0 auto; width:clamp(150px,14vw,300px); border-color:var(--gold-2); box-shadow:0 0 0 2px var(--gold-soft); }
+.bracket2 .bmt { display:flex; align-items:center; gap:8px; padding:clamp(5px,.6vw,11px) clamp(8px,.8vw,14px);
+  font-size:clamp(12px,1.05vw,21px); color:var(--muted); }
 .bracket2 .bmt+.bmt { border-top:1px solid var(--line); }
 .bracket2 .bmt .dot { width:8px; height:8px; border-radius:50%; flex:none; }
-.bracket2 .bmt b { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+/* A cut-off team name is useless on a big screen, so a long one wraps onto a
+   second line rather than ending in dots. */
+.bracket2 .bmt b { flex:1; min-width:0; font-weight:600; line-height:1.15; overflow-wrap:anywhere; }
 .bracket2 .bmt .sc { font-family:var(--mono); font-weight:700; }
 .bracket2 .bmt .so { font-family:var(--mono); font-size:.66em; background:var(--gold-soft); color:#6a5326; border-radius:4px; padding:0 4px; }
 .bracket2 .bmt.win { color:var(--ink); }

@@ -34,13 +34,17 @@ async function api(a, extra){ const q = extra? ('&'+extra):''; const r=await fet
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function pName(p){ return p.name?('Poule '+esc(p.name)):'Standings'; }
 
+/* Writing textContent replaces the text node even when the words are identical,
+   which is a repaint for nothing. The header would tick over every 2.5 seconds. */
+function setText(el, value){ if(el.textContent!==value) el.textContent=value; }
+
 async function tick(){
   const clock=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  $('#clock').textContent=clock; $('#updated').textContent='updated '+clock;
+  setText($('#clock'), clock); setText($('#updated'), 'updated '+clock);
   STATE=await api('state');
-  if(!STATE.ok||!STATE.event){ $('#grid').innerHTML='<div class="card center muted" style="grid-column:1/-1">Waiting for the tournament to start…</div>'; return; }
-  $('#evName').textContent=STATE.event.name||'Crokinole';
-  $('#roundChip').textContent = STATE.event.is_knockout ? STATE.event.round_label : ('Round '+STATE.event.current_round+' / '+STATE.event.num_rounds);
+  if(!STATE.ok||!STATE.event){ paint($('#grid'), '<div class="card center muted" style="grid-column:1/-1">Waiting for the tournament to start…</div>'); return; }
+  setText($('#evName'), STATE.event.name||'Crokinole');
+  setText($('#roundChip'), STATE.event.is_knockout ? STATE.event.round_label : ('Round '+STATE.event.current_round+' / '+STATE.event.num_rounds));
   if(VIEW==='ko') SCHED=await api('schedule');
   if(VIEW==='poule' && !pouleTimer) startPoulePaging();
   render();
@@ -55,12 +59,52 @@ function setView(v){
 }
 document.querySelectorAll('.viewnav [data-view]').forEach(b=>b.onclick=()=>{ stopCycle(); $('#autocycle').checked=false; setView(b.dataset.view); });
 
-/**
- * The board refreshes every couple of seconds. Rebuilding it every time made the
- * screen flash, so the markup is only written when it has actually changed.
- * A score arriving updates that one line; an unchanged board is left alone.
- */
-let lastHtml = '';
+/* ---- painting without flashing ----
+   The board reloads every couple of seconds. Writing innerHTML throws the whole
+   screen away and builds it again, and on a big screen you see that: one empty
+   frame, then everything jumps back. Skipping the write when nothing changed was
+   not enough, because a score arriving or a poule page turning does change it.
+
+   So instead the new markup is built off-screen and compared with what is already
+   there, node by node. A changed score rewrites that one number; the ninety other
+   rows are never touched, so there is nothing to repaint and nothing to flash. */
+function paint(el, html){
+  if(el._html === html) return;                 // genuinely unchanged: do nothing
+  const next = document.createElement('div');
+  next.innerHTML = html;
+  patchChildren(el, next);
+  el._html = html;
+}
+
+function patchChildren(oldParent, newParent){
+  const oldKids = oldParent.childNodes, newKids = newParent.childNodes;
+  for(let i=0; i<newKids.length; i++){
+    const want = newKids[i], have = oldKids[i];
+    if(!have) oldParent.appendChild(want.cloneNode(true));
+    else if(!patchNode(have, want)) oldParent.replaceChild(want.cloneNode(true), have);
+  }
+  while(oldKids.length > newKids.length) oldParent.removeChild(oldKids[oldKids.length-1]);
+}
+
+/** Update one node in place. Returns false when the two are too different to reuse. */
+function patchNode(have, want){
+  if(have.nodeType===3 && want.nodeType===3){                       // text: a name, a score
+    if(have.nodeValue!==want.nodeValue) have.nodeValue=want.nodeValue;
+    return true;
+  }
+  if(have.nodeType!==1 || want.nodeType!==1 || have.tagName!==want.tagName) return false;
+  for(let i=have.attributes.length-1; i>=0; i--){
+    const name=have.attributes[i].name;
+    if(!want.hasAttribute(name)) have.removeAttribute(name);
+  }
+  for(let i=0; i<want.attributes.length; i++){
+    const a=want.attributes[i];
+    if(have.getAttribute(a.name)!==a.value) have.setAttribute(a.name, a.value);
+  }
+  patchChildren(have, want);
+  return true;
+}
+
 function render(){
   const g=$('#grid');
   const P = (STATE.poules&&STATE.poules.length) ? STATE.poules.length : 2;
@@ -77,8 +121,9 @@ function render(){
   }
 
   if(g.className!==cls) g.className=cls;
-  if(cols!==null) g.style.setProperty('--cols', cols);
-  if(html!==lastHtml){ g.innerHTML=html; lastHtml=html; }
+  // Setting a custom property re-runs layout even when the value is identical.
+  if(cols!==null && g.style.getPropertyValue('--cols')!==String(cols)) g.style.setProperty('--cols', cols);
+  paint(g, html);
 }
 
 /* ---- poule stages (ranking) ----
@@ -191,9 +236,11 @@ function renderKnockout(){
   const finalM=finalArr.find(m=>m.bracket!=='Bronze final')||finalArr[0];
   const bronzeM=finalArr.find(m=>m.bracket==='Bronze final');
   const top=rounds.length-1;
+  // --kids says how many rounds are nested inside this node, so the stylesheet can
+  // give every round an equal share of the width instead of halving it each level.
   function node(level,idx){
     const m=rounds[level][idx]; if(!m) return '';
-    let kids=''; if(level>0) kids='<div class="tkids">'+node(level-1,idx*2)+node(level-1,idx*2+1)+'</div>';
+    let kids=''; if(level>0) kids='<div class="tkids" style="--kids:'+level+'">'+node(level-1,idx*2)+node(level-1,idx*2+1)+'</div>';
     return '<div class="tnode'+(level>0?' haskids':'')+'">'+bmCard(m)+kids+'</div>';
   }
   let left='', right='';
