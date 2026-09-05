@@ -167,6 +167,13 @@ export function createRouter(context: ApiContext): Router {
       poules: poules.map((poule) => ({ id: poule.id, name: poule.name, tables: poule.tables })),
       standings,
       round_matches: roundMatches.map((match) => serialiseMatch(match, ref)),
+      // What the jury desk has told the big screen to do, if anything.
+      board: {
+        view: event.board.view,
+        poule_page: event.board.page,
+        autocycle: event.board.autocycle,
+        seq: event.board.seq,
+      },
       server_time: Math.floor(Date.now() / 1000),
     };
   };
@@ -295,6 +302,49 @@ export function createRouter(context: ApiContext): Router {
         winner_team_id: winner === null ? null : winner === 'a' ? saved.teamAId : saved.teamBId,
       },
     });
+  });
+
+  /**
+   * Drive the big screen from somewhere else in the hall.
+   *
+   * Written for a Stream Deck at the jury desk: one button puts the knockout up
+   * when the final starts, another goes back to the poules. The board runs
+   * itself the rest of the time, so a command applies once and then hands
+   * control back rather than freezing the screen on whatever was last pressed.
+   *
+   * Takes either credential. The organiser has the PIN; a control surface is
+   * better off with the API key, which is scoped to this one tournament.
+   */
+  router.post('/board_control', (req, res) => {
+    const event = eventOr(res);
+    if (event === null) return undefined;
+    const fields = body(req);
+
+    const key = text(req.header('x-api-key')) || text(fields.api_key);
+    const allowed =
+      secretMatches(machineKey(context, event), key) ||
+      (event.adminPin !== '' && secretMatches(event.adminPin, text(fields.admin_pin)));
+    if (!allowed) return sendFailure(res, fail('unauthorised', 'Send the API key or the organiser PIN.'));
+
+    const command: { view?: string; page?: number; autocycle?: boolean } = {};
+    const view = text(fields.view);
+    if (view !== '') {
+      if (!['poule', 'ko', 'tables'].includes(view)) {
+        return sendFailure(res, fail('bad_request', 'view must be poule, ko or tables.'));
+      }
+      command.view = view;
+    }
+    const page = optionalNumber(fields.poule_page);
+    if (page !== undefined) command.page = Math.max(1, page);
+    if (fields.autocycle !== undefined) {
+      command.autocycle = fields.autocycle === true || fields.autocycle === 'true';
+    }
+    if (Object.keys(command).length === 0) {
+      return sendFailure(res, fail('bad_request', 'Send a view, a poule_page, or autocycle.'));
+    }
+
+    const seq = context.store.setBoardCommand(event.id, command);
+    return res.json({ ok: true, ...command, seq });
   });
 
   /* ---- the organiser ---- */

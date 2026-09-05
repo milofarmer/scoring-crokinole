@@ -56,6 +56,7 @@ async function tick(){
   if(!STATE.ok||!STATE.event){ paint($('#grid'), '<div class="card center muted" style="grid-column:1/-1">Waiting for the tournament to start…</div>'); return; }
   setText($('#evName'), STATE.event.name||'Crokinole');
   setText($('#roundChip'), STATE.event.is_knockout ? STATE.event.round_label : ('Round '+STATE.event.current_round+' / '+STATE.event.num_rounds));
+  obeyBoardCommand(STATE.board);
   if(VIEW==='ko') SCHED=await api('schedule');
   if(VIEW==='poule' && !pouleTimer) startPoulePaging();
   render();
@@ -288,6 +289,37 @@ function startCycle(){
 }
 function stopCycle(){ if(cycleTimer){clearTimeout(cycleTimer);cycleTimer=null;} }
 $('#autocycle').onchange=e=>{ if(e.target.checked){ startCycle(); } else stopCycle(); };
+
+/* ---- driven from the jury desk ----
+   Someone with a control surface at the desk can put the knockout up when the
+   final starts. A command carries a sequence number and is obeyed once: the
+   board then goes back to running itself, rather than being frozen on whatever
+   was last pressed. The number is remembered so reloading the page mid-round
+   does not replay an old instruction. */
+let lastBoardSeq = null;
+
+function obeyBoardCommand(command){
+  if(!command || typeof command.seq !== 'number') return;
+  if(lastBoardSeq === null){ lastBoardSeq = command.seq; return; }   // first load: nothing to replay
+  if(command.seq === lastBoardSeq) return;
+  lastBoardSeq = command.seq;
+
+  if(typeof command.autocycle === 'boolean'){
+    $('#autocycle').checked = command.autocycle;
+    if(command.autocycle) startCycle(); else stopCycle();
+  }
+  if(typeof command.poule_page === 'number' && command.poule_page >= 1){
+    poulePage = command.poule_page - 1;
+  }
+  if(command.view && VIEWS.includes(command.view)){
+    // A named view is a deliberate choice, so stop cycling away from it unless
+    // the same command asked for cycling.
+    if(command.autocycle !== true){ stopCycle(); $('#autocycle').checked = false; }
+    setView(command.view);
+  } else {
+    render();
+  }
+}
 
 /* ---- how a player joins ----
    The scoring page is already served to anything on the hall's wifi; the missing

@@ -48,6 +48,38 @@
         }
       }
     },
+    "/api/board_control": {
+      "post": {
+        "tags": ["Tournament"],
+        "summary": "Drive the big screen",
+        "operationId": "boardControl",
+        "description": "Change what the projector is showing, from somewhere else in the hall.\n\nWritten for a control surface at the jury desk: one button puts the knockout up when the final starts, another goes back to the poules. Bitfocus Companion can do this with its built-in HTTP module and no custom code.\n\nA command is obeyed **once**. The board then goes back to running itself, rather than being frozen on whatever was last pressed. Each command carries a sequence number the board remembers, so reloading the page does not replay an old instruction and a button pressed twice does the obvious thing.\n\nNaming a view stops the automatic cycling, since choosing a screen is a deliberate act. Send `autocycle: true` with it to pick a view and keep cycling anyway.\n\nTakes either credential: the API key, which is scoped to this one tournament and is the better choice for a control surface, or the organiser PIN.",
+        "security": [{ "MachineKey": [] }, { "AdminPin": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "description": "Send at least one of view, poule_page or autocycle.",
+            "properties": {
+              "view": { "type": "string", "enum": ["poule", "ko", "tables"], "description": "Which screen to show: the poule tables, the knockout bracket, or what is on each table." },
+              "poule_page": { "type": "integer", "minimum": 1, "description": "Jump to a page of poules, counting from 1. The board shows four at a time." },
+              "autocycle": { "type": "boolean", "description": "Whether the board keeps moving between views on its own." },
+              "admin_pin": { "type": "string", "description": "Instead of the API key." }
+            }
+          }, "examples": {
+            "knockout": { "summary": "Put the knockout up for the final", "value": { "view": "ko" } },
+            "resume": { "summary": "Back to the poules, cycling again", "value": { "view": "poule", "autocycle": true } },
+            "freeze": { "summary": "Stop cycling and stay where it is", "value": { "autocycle": false } },
+            "page": { "summary": "Show a particular page of poules", "value": { "view": "poule", "poule_page": 2, "autocycle": false } }
+          } } }
+        },
+        "responses": {
+          "200": { "description": "Passed on. The board picks it up within a couple of seconds.", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "const": true }, "view": { "type": "string" }, "seq": { "type": "integer", "description": "This command's sequence number." } } }, "example": { "ok": true, "view": "ko", "seq": 12 } } } },
+          "400": { "description": "Nothing to do, or a view that does not exist.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "ok": false, "error": "view must be poule, ko or tables." } } } },
+          "401": { "description": "Neither credential was right.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "ok": false, "error": "Send the API key or the organiser PIN." } } } }
+        }
+      }
+    },
     "/api/ingest_tables": {
       "get": {
         "tags": ["Automated scoring"],
@@ -322,7 +354,7 @@
       },
       "MatchPublic": { "type": "object", "description": "A match as returned to a phone or a scoring machine.", "properties": { "id": { "type": "integer" }, "match_code": { "type": ["string", "null"] }, "table_no": { "type": "integer", "description": "The number on the players\u2019 schedule, within their poule." }, "phys_table": { "type": ["integer", "null"], "description": "The table in the hall. Null for a bye." }, "round": { "type": "integer" }, "poule_id": { "type": "integer" }, "phase": { "$ref": "#/components/schemas/MatchPhase" }, "bracket": { "type": ["string", "null"] }, "team_a": { "$ref": "#/components/schemas/TeamRef" }, "team_b": { "$ref": "#/components/schemas/TeamRef" }, "points_a": { "type": ["integer", "null"] }, "points_b": { "type": ["integer", "null"] }, "sets": { "type": ["array", "null"], "items": { "$ref": "#/components/schemas/SetScore" } }, "status": { "$ref": "#/components/schemas/MatchStatus" }, "winner": { "type": ["string", "null"], "enum": ["a", "b", null] }, "winner_team_id": { "type": ["integer", "null"] } } },
       "IngestMatch": { "type": "object", "properties": { "match_code": { "type": ["string", "null"] }, "match_id": { "type": "integer" }, "round": { "type": "integer" }, "table": { "type": ["integer", "null"], "description": "The table in the hall. This is the one to score against. Null for a bye, which is played at no table." }, "poule_table": { "type": "integer", "description": "The number on the players\u2019 schedule, counted within the poule, so it repeats once per poule. Not usable on its own to identify a match." }, "poule": { "type": ["string", "null"] }, "phase": { "$ref": "#/components/schemas/MatchPhase" }, "bracket": { "type": ["string", "null"] }, "team_a": { "$ref": "#/components/schemas/TeamRef" }, "team_b": { "$ref": "#/components/schemas/TeamRef" }, "points_a": { "type": ["integer", "null"] }, "points_b": { "type": ["integer", "null"] }, "status": { "$ref": "#/components/schemas/MatchStatus" } } },
-      "StateResponse": { "type": "object", "properties": { "ok": { "const": true }, "event": { "oneOf": [{ "$ref": "#/components/schemas/Event" }, { "type": "null" }] }, "poules": { "type": "array", "items": { "$ref": "#/components/schemas/Poule" } }, "standings": { "type": "object", "description": "Keyed by poule id, as a string. Key \"0\" holds teams not yet in a poule.", "additionalProperties": { "type": "array", "items": { "$ref": "#/components/schemas/StandingRow" } } }, "round_matches": { "type": "array", "items": { "$ref": "#/components/schemas/Match" } }, "server_time": { "type": "integer", "description": "Unix seconds, for spotting a clock that has drifted." } } },
+      "StateResponse": { "type": "object", "properties": { "ok": { "const": true }, "event": { "oneOf": [{ "$ref": "#/components/schemas/Event" }, { "type": "null" }] }, "poules": { "type": "array", "items": { "$ref": "#/components/schemas/Poule" } }, "standings": { "type": "object", "description": "Keyed by poule id, as a string. Key \"0\" holds teams not yet in a poule.", "additionalProperties": { "type": "array", "items": { "$ref": "#/components/schemas/StandingRow" } } }, "round_matches": { "type": "array", "items": { "$ref": "#/components/schemas/Match" } }, "board": { "type": "object", "description": "What the big screen was last told to do from the jury desk. The board obeys a sequence number it has not seen before, once.", "properties": { "view": { "type": ["string", "null"] }, "poule_page": { "type": ["integer", "null"] }, "autocycle": { "type": ["boolean", "null"] }, "seq": { "type": "integer" } } }, "server_time": { "type": "integer", "description": "Unix seconds, for spotting a clock that has drifted." } } },
       "ScheduleResponse": { "type": "object", "properties": { "ok": { "const": true }, "event": { "type": "object" }, "poules": { "type": "array", "items": { "$ref": "#/components/schemas/Poule" } }, "rounds": { "type": "object", "description": "Keyed by round number.", "additionalProperties": { "type": "array", "items": { "type": "object" } } } } },
       "IngestScoreRequest": {
         "type": "object",

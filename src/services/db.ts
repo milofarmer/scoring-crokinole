@@ -58,6 +58,13 @@ const SCHEMA = [
 const ADDED_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ['crok_event', 'bronze_final INTEGER DEFAULT 1'],
   ['crok_match', 'phys_table INTEGER'],
+  // What the big screen has been told to show from the jury desk. The sequence
+  // number is what the board watches: it obeys a command once, then goes back to
+  // running itself, so a reload does not replay an old instruction.
+  ['crok_event', 'board_view TEXT'],
+  ['crok_event', 'board_page INTEGER'],
+  ['crok_event', 'board_autocycle INTEGER'],
+  ['crok_event', 'board_seq INTEGER DEFAULT 0'],
 ];
 
 /** Open (creating if needed) the tournament database and apply the schema. */

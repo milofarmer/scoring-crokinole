@@ -12,6 +12,22 @@ export interface StoredEvent extends EventConfig {
   readonly adminPin: string;
   readonly apiKey: string;
   readonly status: string;
+  readonly board: BoardCommand;
+}
+
+/**
+ * What the big screen has last been told to do from the jury desk.
+ *
+ * `seq` is the whole mechanism: the board remembers the number it last obeyed,
+ * so a command applies once and the board then carries on cycling by itself. A
+ * reload does not replay an old instruction, and a Stream Deck pressed twice
+ * does the obvious thing.
+ */
+export interface BoardCommand {
+  readonly view: string | null;
+  readonly page: number | null;
+  readonly autocycle: boolean | null;
+  readonly seq: number;
 }
 
 function toStoredEvent(value: unknown): StoredEvent {
@@ -30,6 +46,14 @@ function toStoredEvent(value: unknown): StoredEvent {
     adminPin: str(row.admin_pin, 'event.admin_pin'),
     apiKey: str(row.api_key, 'event.api_key'),
     status: str(row.status, 'event.status'),
+    board: {
+      view: strOrNull(row.board_view, 'event.board_view'),
+      page: numOrNull(row.board_page, 'event.board_page'),
+      autocycle: row.board_autocycle === null || row.board_autocycle === undefined
+        ? null
+        : num(row.board_autocycle, 'event.board_autocycle') === 1,
+      seq: numOrNull(row.board_seq, 'event.board_seq') ?? 0,
+    },
   };
 }
 
@@ -351,6 +375,30 @@ export function createTournamentStore(db: Db) {
         input.enteredBy,
         input.matchId,
       );
+    },
+
+    /**
+     * Tell the big screen what to show. Only what was sent changes; the sequence
+     * number always moves on, which is how the board knows there is something
+     * new to obey.
+     */
+    setBoardCommand(eventId: number, command: {
+      readonly view?: string;
+      readonly page?: number;
+      readonly autocycle?: boolean;
+    }): number {
+      const sets: string[] = [];
+      const values: (string | number)[] = [];
+      if (command.view !== undefined) { sets.push('board_view = ?'); values.push(command.view); }
+      if (command.page !== undefined) { sets.push('board_page = ?'); values.push(command.page); }
+      if (command.autocycle !== undefined) { sets.push('board_autocycle = ?'); values.push(command.autocycle ? 1 : 0); }
+
+      sets.push('board_seq = COALESCE(board_seq, 0) + 1');
+      values.push(eventId);
+      db.prepare(`UPDATE crok_event SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+
+      const row = db.prepare('SELECT board_seq FROM crok_event WHERE id = ?').get(eventId);
+      return row === undefined ? 0 : numOrNull(asRow(row).board_seq, 'event.board_seq') ?? 0;
     },
 
     /** Lock or unlock a result. Confirmed means a phone can no longer change it. */
