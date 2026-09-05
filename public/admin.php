@@ -119,6 +119,44 @@
     </div>
 
     <div class="card">
+      <h2>Season ranking · Field-Weighted Points</h2>
+      <p class="muted" style="font-size:13px;margin-top:-4px">Record results from official croki.nl nights. FWP is computed from the field (FSI/FDI/size). <a href="season.php" target="_blank">View leaderboard ↗</a></p>
+
+      <div class="row" style="align-items:end">
+        <label class="field" style="flex:1"><span class="lab">Add player</span><input id="spName" placeholder="Player name"></label>
+        <button class="btn ghost" id="spAdd" style="flex:0 0 auto">Add player</button>
+        <div class="muted mono" id="spCount" style="flex:0 0 auto;align-self:center"></div>
+      </div>
+
+      <div class="mono muted" style="margin:14px 0 6px;font-size:12px;letter-spacing:.08em;text-transform:uppercase">Add a night</div>
+      <div class="row">
+        <label class="field" style="flex:2"><span class="lab">Event</span><input id="snName" placeholder="e.g. Elmira 2026"></label>
+        <label class="field" style="flex:1"><span class="lab">Date</span><input id="snDate" type="date"></label>
+        <label class="field" style="flex:1"><span class="lab">Host</span><input id="snHost" placeholder="croki.nl"></label>
+      </div>
+      <div class="row" style="align-items:end">
+        <label class="field" style="flex:0 0 90px"><span class="lab">Season</span><input id="snSeason" value="S17"></label>
+        <label class="field" style="flex:0 0 120px"><span class="lab">Type</span>
+          <select id="snType"><option value="singles">singles</option><option value="doubles">doubles</option></select></label>
+        <label class="field" style="flex:0 0 90px"><span class="lab">Field size</span><input id="snSize" class="num" type="number" min="2"></label>
+        <label class="field" style="flex:0 0 90px"><span class="lab">FSI</span><input id="snFsi" class="num" type="number" step="0.01" value="1.00"></label>
+        <label class="field" style="flex:0 0 90px"><span class="lab">FDI</span><input id="snFdi" class="num" type="number" step="0.01" value="1.00"></label>
+        <button class="btn" id="snAdd" style="flex:0 0 auto">Add night</button>
+      </div>
+      <div id="nightList"></div>
+
+      <div class="mono muted" style="margin:14px 0 6px;font-size:12px;letter-spacing:.08em;text-transform:uppercase">Add a result</div>
+      <div class="row" style="align-items:end">
+        <label class="field" style="flex:2"><span class="lab">Night</span><select id="srNight"></select></label>
+        <label class="field" style="flex:2"><span class="lab">Player</span><select id="srPlayer"></select></label>
+        <label class="field" style="flex:0 0 100px"><span class="lab">Position</span><input id="srPos" class="num" type="number" min="1"></label>
+        <div class="field" style="flex:0 0 90px"><span class="lab">FWP</span><div id="srFwp" class="mono" style="padding:9px 0;color:var(--gold-2)">—</div></div>
+        <button class="btn ghost" id="srAdd" style="flex:0 0 auto">Add result</button>
+      </div>
+      <div id="resultList"></div>
+    </div>
+
+    <div class="card">
       <h2>Danger zone</h2>
       <button class="btn danger" id="resetBtn">Delete this event &amp; all data</button>
     </div>
@@ -336,6 +374,67 @@ $('#resetBtn').onclick = async ()=>{
   if(!confirm('Delete the entire event and all teams, poules, scores? This cannot be undone.')) return;
   const r = await api('reset_event'); if(r.ok){ location.reload(); } else toast(r.error,true);
 };
+
+/* season ranking (FWP) */
+let SD = {players:[], nights:[], results:[]};
+function fwpCalc(pos,N,fsi,fdi){ if(N<=1) return 50*fsi; pos=Math.max(1,Math.min(N,pos)); const x=(pos-1)/(N-1), f=0.40*fdi; return Math.round(50*fsi*(f+(1-f)*Math.pow(1-x,1.83))*10)/10; }
+function nightById(id){ return SD.nights.find(n=>+n.id===+id); }
+async function loadSeason(){
+  const r = await api('season_data'); if(!r.ok) return;
+  SD = {players:r.players||[], nights:r.nights||[], results:r.results||[]};
+  $('#spCount').textContent = SD.players.length+' players';
+  $('#srNight').innerHTML = SD.nights.length ? SD.nights.map(n=>`<option value="${n.id}">${esc(n.name)} · ${esc(n.type)} · N${n.field_size}</option>`).join('') : '<option value="">— add a night first —</option>';
+  $('#srPlayer').innerHTML = SD.players.length ? SD.players.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('') : '<option value="">— add a player first —</option>';
+  renderNightList(); renderResultList(); srPreview();
+}
+function renderNightList(){
+  if(!SD.nights.length){ $('#nightList').innerHTML=''; return; }
+  $('#nightList').innerHTML = SD.nights.map(n=>{
+    const cnt = SD.results.filter(r=>+r.snight_id===+n.id).length;
+    return `<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)">
+      <span class="mono muted" style="flex:0 0 84px">${esc(n.date||'')}</span>
+      <b style="flex:1">${esc(n.name)}</b>
+      <span class="muted mono" style="flex:0 0 auto">${esc(n.type)} · N${n.field_size} · FSI ${(+n.fsi).toFixed(2)} · FDI ${(+n.fdi).toFixed(2)} · 1st ${(50*n.fsi).toFixed(1)} · ${cnt} results</span>
+      <button class="btn danger" data-delnight="${n.id}" style="flex:0 0 auto;padding:6px 10px">Delete</button></div>`;
+  }).join('');
+  $('#nightList').querySelectorAll('[data-delnight]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Delete this night and its results?')) return;
+    const r=await api('season_delete_night',{id:+b.dataset.delnight}); if(r.ok){ toast('Night deleted'); loadSeason(); } else toast(r.error,true);
+  });
+}
+function renderResultList(){
+  const nid=+$('#srNight').value; const rows=SD.results.filter(r=>+r.snight_id===nid).sort((a,b)=>a.position-b.position);
+  if(!nid || !rows.length){ $('#resultList').innerHTML='<p class="muted" style="font-size:13px">No results for this night yet.</p>'; return; }
+  $('#resultList').innerHTML = rows.map(r=>`<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)">
+      <span class="mono muted" style="flex:0 0 40px">#${r.position}</span>
+      <b style="flex:1">${esc(r.player_name)}</b>
+      <span class="mono" style="flex:0 0 auto;color:var(--gold-2)">${(+r.fwp).toFixed(1)} FWP</span>
+      <button class="btn danger" data-delres="${r.id}" style="flex:0 0 auto;padding:6px 10px">Remove</button></div>`).join('');
+  $('#resultList').querySelectorAll('[data-delres]').forEach(b=>b.onclick=async()=>{
+    const r=await api('season_delete_result',{id:+b.dataset.delres}); if(r.ok){ loadSeason(); } else toast(r.error,true);
+  });
+}
+function srPreview(){
+  const n=nightById($('#srNight').value); const pos=+$('#srPos').value;
+  $('#srFwp').textContent = (n&&pos) ? fwpCalc(pos,+n.field_size,+n.fsi,+n.fdi).toFixed(1) : '—';
+}
+$('#srNight').onchange=()=>{ renderResultList(); srPreview(); };
+$('#srPos').oninput=srPreview;
+$('#spAdd').onclick=async()=>{ const name=$('#spName').value.trim(); if(!name){toast('Name?',true);return;}
+  const r=await api('season_add_player',{name}); if(r.ok){ $('#spName').value=''; toast('Player added'); loadSeason(); } else toast(r.error,true); };
+$('#snAdd').onclick=async()=>{
+  const r=await api('season_save_night',{season:$('#snSeason').value,name:$('#snName').value,date:$('#snDate').value,
+    host:$('#snHost').value,type:$('#snType').value,field_size:+$('#snSize').value,fsi:+$('#snFsi').value,fdi:+$('#snFdi').value});
+  if(r.ok){ $('#snName').value=''; toast('Night added'); loadSeason(); } else toast(r.error,true);
+};
+$('#srAdd').onclick=async()=>{
+  const nid=+$('#srNight').value, pid=+$('#srPlayer').value, pos=+$('#srPos').value;
+  if(!nid||!pid||!pos){ toast('Pick night, player and position',true); return; }
+  const r=await api('season_add_result',{snight_id:nid,player_id:pid,position:pos});
+  if(r.ok){ $('#srPos').value=''; toast('Result added ('+r.fwp+' FWP)'); loadSeason(); } else toast(r.error,true);
+};
+
+const _show=show; show=async function(){ await _show(); loadSeason(); };
 
 boot();
 </script>
