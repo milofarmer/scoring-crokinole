@@ -15,6 +15,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS crok_event (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      name TEXT, play_code TEXT, admin_pin TEXT, api_key TEXT,
+     discipline TEXT DEFAULT 'doubles',
      num_rounds INTEGER DEFAULT 4,
      points_win INTEGER DEFAULT 2,
      points_tie INTEGER DEFAULT 1,

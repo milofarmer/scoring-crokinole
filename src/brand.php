@@ -2,8 +2,22 @@
 /** Shared HTML head + crokinole board logo. Include only. */
 if (!defined('CROK')) { http_response_code(403); exit('forbidden'); }
 
+/**
+ * Stamp each stylesheet with its file time. Without this a browser keeps showing
+ * the previous styling after an update — which at a venue looks like a broken
+ * screen rather than a stale cache.
+ */
+function crok_asset(string $file): string {
+    $path = __DIR__ . '/../public/' . $file;
+    $stamp = is_file($path) ? filemtime($path) : time();
+    return $file . '?v=' . $stamp;
+}
+
 function crok_head(string $title, bool $bigscreen = false): void {
-    $extra = $bigscreen ? '<link rel="stylesheet" href="assets/board.css">' : '';
+    $extra = $bigscreen
+        ? '<link rel="stylesheet" href="' . crok_asset('assets/board.css') . '">'
+        : '';
+    $style = crok_asset('assets/style.css');
     echo <<<HTML
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -12,7 +26,7 @@ function crok_head(string $title, bool $bigscreen = false): void {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="{$style}">
 {$extra}
 HTML;
 }

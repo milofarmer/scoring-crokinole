@@ -42,19 +42,25 @@ async function tick(){
   $('#evName').textContent=STATE.event.name||'Crokinole';
   $('#roundChip').textContent = STATE.event.is_knockout ? STATE.event.round_label : ('Round '+STATE.event.current_round+' / '+STATE.event.num_rounds);
   if(VIEW==='ko') SCHED=await api('schedule');
+  if(VIEW==='poule' && !pouleTimer) startPoulePaging();
   render();
 }
 
-function setView(v){ VIEW=v; document.querySelectorAll('.viewnav [data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===v)); tick(); }
+function setView(v){
+  VIEW=v;
+  document.querySelectorAll('.viewnav [data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
+  if(v==='poule') startPoulePaging(); else stopPoulePaging();
+  tick();
+}
 document.querySelectorAll('.viewnav [data-view]').forEach(b=>b.onclick=()=>{ stopCycle(); $('#autocycle').checked=false; setView(b.dataset.view); });
 
 function render(){
   const g=$('#grid');
   const P = (STATE.poules&&STATE.poules.length) ? STATE.poules.length : 2;
   if(VIEW==='poule'){
-    // Few poules → one row; many poules → ~3 rows (wider cards, fills the screen).
-    const cols = P<=4 ? P : Math.ceil(P/3);
-    g.className='board-grid'; g.style.setProperty('--cols',cols); g.innerHTML=renderRank(cols);
+    const shown = (pouleePages()[poulePage]||[]).length || 1;
+    g.className='board-grid'; g.style.setProperty('--cols', Math.min(shown, POULES_PER_PAGE));
+    g.innerHTML=renderRank();
   } else if(VIEW==='ko'){
     g.className='ko-wrap'; g.innerHTML=renderKnockout();
   } else {
@@ -63,16 +69,47 @@ function render(){
   g.classList.remove('fade'); void g.offsetWidth; g.classList.add('fade');
 }
 
-/* ---- poule stages (ranking) ---- */
-function renderRank(cols){
-  const narrow = cols>=3; // narrow columns → compact single-line rows
+/* ---- poule stages (ranking) ----
+   More than a handful of poules cannot be read from across a hall, so the board
+   shows a page of them at a time and moves on by itself. */
+const POULES_PER_PAGE = 4;
+let poulePage = 0, pouleTimer = null;
+
+function pouleePages(){
+  if(!STATE || !STATE.poules) return [[]];   // called once before the first load
   const poules = STATE.poules.length?STATE.poules:[{id:0,name:''}];
+  const pages = [];
+  for(let i=0;i<poules.length;i+=POULES_PER_PAGE) pages.push(poules.slice(i,i+POULES_PER_PAGE));
+  return pages.length?pages:[[]];
+}
+
+function startPoulePaging(){
+  stopPoulePaging();
+  if(pouleePages().length<2) return;
+  pouleTimer=setInterval(()=>{ poulePage=(poulePage+1)%pouleePages().length; if(VIEW==='poule') render(); }, 12000);
+}
+function stopPoulePaging(){ if(pouleTimer){ clearInterval(pouleTimer); pouleTimer=null; } }
+
+function renderRank(){
+  const pages = pouleePages();
+  if(poulePage>=pages.length) poulePage=0;
+  const shown = pages[poulePage]||[];
+  const all = STATE.poules.length?STATE.poules:[{id:0,name:''}];
+
   let html='';
-  poules.forEach((p,i)=>{
-    const rows=STATE.standings[p.id]||[]; const color=pouleColors[i%pouleColors.length];
-    html+='<div class="card"><h2><span class="dot" style="background:'+color+'"></span>'+pName(p)+'</h2>'+standSplit(rows,narrow)+'</div>';
+  shown.forEach((p)=>{
+    const i = all.findIndex(x=>x.id===p.id);
+    const rows=STATE.standings[p.id]||[]; const color=pouleColors[(i<0?0:i)%pouleColors.length];
+    html+='<div class="card"><h2><span class="dot" style="background:'+color+'"></span>'+pName(p)+'</h2>'+standSplit(rows,false)+'</div>';
   });
-  return html||'<div class="card center muted">No teams yet.</div>';
+  if(!html) return '<div class="card center muted">No teams yet.</div>';
+
+  if(pages.length>1){
+    const label = shown.length ? (shown[0].name+(shown.length>1?('–'+shown[shown.length-1].name):'')) : '';
+    const dots = pages.map((_,i)=>'<span class="pgdot'+(i===poulePage?' on':'')+'"></span>').join('');
+    html += '<div class="pagenote">Poule '+esc(label)+' &nbsp;·&nbsp; '+(poulePage+1)+' of '+pages.length+' &nbsp; '+dots+'</div>';
+  }
+  return html;
 }
 // Split a long ranking into two side-by-side columns so every team stays on screen.
 function standSplit(rows,narrow){
@@ -120,8 +157,8 @@ function tcard(m){
     else if(m.status==='progress'){st='playing…';cls='progress';} else {st='to play';cls='pending';}
   return '<div class="tcard'+(m.status==='progress'?' live':'')+'">'
     +'<div class="tnum">TABLE '+m.table_no+(m.match_code?' <span class="mcode">#'+m.match_code+'</span>':'')+'</div>'
-    +'<div class="side'+(aWin?' win':'')+'"><span class="nm"><span class="dot" style="background:var(--red)"></span><b>'+a+'</b></span><span class="sc">'+sa+'</span></div>'
-    +'<div class="side'+(bWin?' win':'')+'"><span class="nm"><span class="dot" style="background:var(--blue)"></span><b>'+b+'</b></span><span class="sc">'+sb+'</span></div>'
+    +'<div class="side'+(aWin?' win':'')+'"><span class="nm"><span class="dot disc-a"></span><b>'+a+'</b></span><span class="sc">'+sa+'</span></div>'
+    +'<div class="side'+(bWin?' win':'')+'"><span class="nm"><span class="dot disc-b"></span><b>'+b+'</b></span><span class="sc">'+sb+'</span></div>'
     +'<div class="st '+cls+'">'+st+'</div></div>';
 }
 
@@ -162,8 +199,8 @@ function bmInner(m){
   if(!m) return '';
   const sa=m.sets_a==null?'':m.sets_a, sb=m.sets_b==null?'':m.sets_b;
   const so=(m.sets_a!=null && m.sets_a===m.sets_b && m.shootout_winner)?'<span class="so">SO</span>':'';
-  return '<div class="bmt'+(m.win==='a'?' win':'')+'"><span class="dot" style="background:var(--red)"></span><b>'+esc(m.a||'—')+'</b>'+(m.win==='a'?so:'')+'<span class="sc">'+sa+'</span></div>'
-    +'<div class="bmt'+(m.win==='b'?' win':'')+'"><span class="dot" style="background:var(--blue)"></span><b>'+(m.b?esc(m.b):'—')+'</b>'+(m.win==='b'?so:'')+'<span class="sc">'+sb+'</span></div>';
+  return '<div class="bmt'+(m.win==='a'?' win':'')+'"><span class="dot disc-a"></span><b>'+esc(m.a||'—')+'</b>'+(m.win==='a'?so:'')+'<span class="sc">'+sa+'</span></div>'
+    +'<div class="bmt'+(m.win==='b'?' win':'')+'"><span class="dot disc-b"></span><b>'+(m.b?esc(m.b):'—')+'</b>'+(m.win==='b'?so:'')+'<span class="sc">'+sb+'</span></div>';
 }
 
 /* ---- auto-cycle ---- */

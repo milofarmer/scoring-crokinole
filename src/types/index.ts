@@ -11,6 +11,12 @@ export type MatchPhase = 'poule' | 'ko';
 /** pending = drawn, progress = partially entered (auto-save), entered/confirmed = counts. */
 export type MatchStatus = 'pending' | 'progress' | 'entered' | 'confirmed';
 
+/**
+ * What varies between tournaments: singles is one player per entry, doubles is
+ * two. The structure (poules, then a knockout) is the same either way.
+ */
+export type Discipline = 'singles' | 'doubles';
+
 /** One set. Points are null until entered; 20's default to 0. */
 export interface SetScore {
   readonly pa: number | null;
@@ -22,6 +28,7 @@ export interface SetScore {
 export interface EventConfig {
   readonly id: number;
   readonly name: string;
+  readonly discipline: Discipline;
   readonly numRounds: number;
   readonly pointsWin: number;
   readonly pointsTie: number;

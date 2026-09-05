@@ -19,6 +19,7 @@ function toStoredEvent(value: unknown): StoredEvent {
   return {
     id: num(row.id, 'event.id'),
     name: str(row.name, 'event.name'),
+    discipline: str(row.discipline, 'event.discipline') === 'singles' ? 'singles' : 'doubles',
     numRounds: num(row.num_rounds, 'event.num_rounds'),
     pointsWin: num(row.points_win, 'event.points_win'),
     pointsTie: num(row.points_tie, 'event.points_tie'),
