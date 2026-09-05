@@ -4,3 +4,7 @@ data/
 *.sqlite-shm
 .DS_Store
 node_modules/
+
+# Desktop app build output
+dist/
+release/

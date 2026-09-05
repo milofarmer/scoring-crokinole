@@ -7,9 +7,9 @@ import tseslint from 'typescript-eslint';
 
 export default [
   js.configs.recommended,
-  { ignores: ['node_modules/**', 'data/**'] },
+  { ignores: ['node_modules/**', 'data/**', 'dist/**', 'release/**'] },
   {
-    files: ['src/**/*.ts', 'test/**/*.ts'],
+    files: ['src/**/*.ts', 'test/**/*.ts', 'electron/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
       ecmaVersion: 2023,

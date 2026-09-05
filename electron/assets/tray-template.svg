@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!--
+    Shape source for trayTemplate.png and trayTemplate@2x.png, which are what the
+    app actually loads. Black on transparent: macOS treats it as a template image
+    and re-colours it for a light or dark menu bar, so no other colour is allowed.
+    A crokinole board seen from above: the rim, the two scoring rings, the centre.
+  -->
+  <g fill="none" stroke="#000000" stroke-width="1">
+    <circle cx="8" cy="8" r="7"/>
+    <circle cx="8" cy="8" r="4.6"/>
+    <circle cx="8" cy="8" r="2.4"/>
+  </g>
+  <circle cx="8" cy="8" r="1" fill="#000000"/>
+</svg>

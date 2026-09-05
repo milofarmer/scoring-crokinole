@@ -1,0 +1,97 @@
+# Packaging for the macOS menu bar app.  Build with:  npm run dist
+#
+# The app has no build step: Node strips the types at load time, so what ships is
+# the source. That is why src/ and public/ are copied in as they are.
+
+appId: nl.croki.tournament
+productName: Crokinole Tournament
+copyright: Crokinole Tournament
+
+directories:
+  output: dist
+
+# package.json has no "main" of its own — nothing else in the project needs one —
+# so the entry point is injected here instead.
+extraMetadata:
+  main: electron/main.ts
+
+files:
+  - electron/**/*
+  - src/**/*
+  - public/**/*
+  - node_modules/**/*
+  - package.json
+
+asar: true
+
+# The server reads its pages and opens its database as ordinary files, and it
+# runs as a separate process that has to resolve express by itself. None of that
+# works from inside the archive, so these three stay on disk beside it, in
+# app.asar.unpacked/ — which is where electron/paths.ts looks for them.
+asarUnpack:
+  - src/**
+  - public/**
+  - node_modules/**
+
+mac:
+  category: public.app-category.sports
+  icon: electron/assets/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  extendInfo:
+    # Menu bar only: no dock icon, no window, no app switcher entry.
+    LSUIElement: 1
+
+  # --- Code signing: wired up, switched off -------------------------------
+  # There is no Apple Developer ID yet, so builds are unsigned and macOS will
+  # warn on first open (right-click, Open). Nothing here holds a secret, and
+  # nothing should ever be pasted in below: the values come from the
+  # environment at build time.
+  #
+  # To sign and notarise, once an Apple Developer account exists:
+  #   1. Replace `identity: null` with the certificate name, for example
+  #      identity: "Developer ID Application: Your Name (TEAMID1234)"
+  #      or delete the line entirely to let electron-builder pick the only
+  #      Developer ID certificate in the login keychain.
+  #   2. Replace `notarize: false` with:
+  #      notarize:
+  #        teamId: TEAMID1234
+  #   3. Export these before running `npm run dist`:
+  #        APPLE_ID                      Apple account email
+  #        APPLE_APP_SPECIFIC_PASSWORD   app-specific password from appleid.apple.com
+  #        APPLE_TEAM_ID                 the ten-character team id
+  #      And, when signing on a machine without the certificate in its keychain
+  #      (a CI runner), also:
+  #        CSC_LINK                      path or base64 of the .p12 certificate
+  #        CSC_KEY_PASSWORD              its password
+  #   4. Uncomment the hardened runtime settings below; notarisation refuses a
+  #      build without them.
+  identity: null
+  notarize: false
+  # hardenedRuntime: true
+  # gatekeeperAssess: false
+  # entitlements: electron/entitlements.mac.plist
+  # entitlementsInherit: electron/entitlements.mac.plist
+
+dmg:
+  title: Crokinole Tournament
+  contents:
+    - x: 130
+      y: 220
+      type: file
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# "Check for updates…" asks GitHub Releases. Until the build is signed and
+# notarised, electron-updater cannot verify or install a download, so the app
+# only reports what it found and points at the releases page — see
+# electron/updates.ts.
+publish:
+  provider: github
+  owner: milofarmer
+  repo: scoring-crokinole
