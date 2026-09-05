@@ -119,6 +119,30 @@
     </div>
 
     <div class="card">
+      <h2>Automated scoring (inbound API)</h2>
+      <p class="muted" style="font-size:13px;margin-top:-4px">For an AI/table system that scores matches automatically. It posts to <code>api.php</code> with this key; everything else stays manual.</p>
+      <label class="field"><span class="lab">API key</span>
+        <input id="apiKey" readonly onclick="this.select()" style="font-family:var(--mono);font-size:13px"></label>
+      <details>
+        <summary class="mono muted" style="cursor:pointer;font-size:13px">How to call it</summary>
+        <pre style="background:var(--panel-2);border-radius:10px;padding:12px;overflow:auto;font-size:12px;line-height:1.5">POST /api.php   (JSON, or header X-Api-Key)
+
+1. What is on each table now
+{ "action":"ingest_tables", "api_key":"KEY" }
+
+2. Score a match  (identify by match_code, match_id, or table)
+{ "action":"ingest_score", "api_key":"KEY",
+  "match_code":"MD55",
+  "sets":[ {"pa":30,"pb":24,"ta":1,"tb":0}, ... ],   // per set: points + 20's
+  "complete":true,                                    // false = live/partial
+  "source":"ai-table-3" }
+
+Totals instead of sets: "points_a":118, "points_b":96, "twenties_a":4, "twenties_b":3
+Knockout tie: add "shootout_winner": &lt;team_id&gt;</pre>
+      </details>
+    </div>
+
+    <div class="card">
       <h2>Season ranking · Field-Weighted Points</h2>
       <p class="muted" style="font-size:13px;margin-top:-4px">Record results from official croki.nl nights. FWP is computed from the field (FSI/FDI/size). <a href="season.php" target="_blank">View leaderboard ↗</a></p>
 
@@ -210,6 +234,7 @@ async function refresh(){
   $('#sName').value=r.event.name||''; $('#sCode').value=r.event.play_code||'';
   $('#sRounds').value=r.event.num_rounds; $('#sWin').value=r.event.points_win; $('#sTie').value=r.event.points_tie;
   $('#sStatus').value=r.event.status;
+  $('#apiKey').value=r.event.api_key||'';
   fillRoundSelects();
   renderPoules(); renderTeams(); renderMatches(); renderKo();
 }

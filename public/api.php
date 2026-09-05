@@ -32,6 +32,25 @@ function crok_public_event(PDO $db, array $in): ?array {
     return crok_active_event($db);
 }
 
+/** Machine API key for automated scoring — generated once per event. */
+function crok_ensure_api_key(PDO $db, array $ev): string {
+    if (!empty($ev['api_key'])) return (string)$ev['api_key'];
+    $key = 'crok_' . bin2hex(random_bytes(16));
+    $db->prepare("UPDATE crok_event SET api_key=? WHERE id=?")->execute([$key, (int)$ev['id']]);
+    return $key;
+}
+
+/** Authenticate an automated client by api_key (header X-Api-Key or body api_key). */
+function crok_require_machine(PDO $db, array $in): array {
+    $ev = crok_public_event($db, $in);
+    if (!$ev) crok_fail('No event.', 404);
+    $key = trim((string)($in['api_key'] ?? ($_SERVER['HTTP_X_API_KEY'] ?? '')));
+    $real = crok_ensure_api_key($db, $ev);
+    if ($key === '' || !hash_equals($real, $key)) crok_fail('Invalid API key.', 401);
+    $ev['api_key'] = $real;
+    return $ev;
+}
+
 function crok_require_admin(PDO $db, array $in): array {
     $ev = crok_public_event($db, $in);
     if (!$ev) crok_fail('No event exists yet.', 404);
@@ -156,6 +175,83 @@ try {
         crok_json(['ok' => true, 'team' => [
             'id' => (int)$t['id'], 'name' => $t['name'], 'number' => (int)$t['number'],
             'poule_id' => (int)$t['poule_id'], 'player1' => $t['player1'], 'player2' => $t['player2'],
+        ]]);
+    }
+
+    /* ---------- machine ingest (automated scoring, e.g. an AI table system) ---------- */
+
+    case 'ingest_tables': {
+        // What is on each table right now, so a machine can map its camera/table to a match.
+        $ev = crok_require_machine($db, $in);
+        crok_ensure_match_codes($db, (int)$ev['id']);
+        $round = (int)($in['round'] ?? $ev['current_round']);
+        $poules = [];
+        foreach (crok_poules($db, (int)$ev['id']) as $p) $poules[(int)$p['id']] = $p['name'];
+        $teams = [];
+        foreach (crok_teams($db, (int)$ev['id']) as $t) $teams[(int)$t['id']] = $t['name'];
+        $out = [];
+        foreach (crok_matches($db, (int)$ev['id'], $round) as $m) {
+            $out[] = [
+                'match_code' => $m['match_code'], 'match_id' => (int)$m['id'],
+                'round' => (int)$m['round'], 'table' => (int)$m['table_no'],
+                'poule' => $poules[(int)$m['poule_id']] ?? null,
+                'phase' => $m['phase'] ?? 'poule', 'bracket' => $m['bracket'],
+                'team_a' => ['id' => (int)$m['team_a_id'], 'name' => $teams[(int)$m['team_a_id']] ?? null],
+                'team_b' => $m['team_b_id'] ? ['id' => (int)$m['team_b_id'], 'name' => $teams[(int)$m['team_b_id']] ?? null] : null,
+                'points_a' => $m['points_a'] === null ? null : (int)$m['points_a'],
+                'points_b' => $m['points_b'] === null ? null : (int)$m['points_b'],
+                'status' => $m['status'],
+            ];
+        }
+        crok_json(['ok' => true, 'round' => $round, 'matches' => $out]);
+    }
+
+    case 'ingest_score': {
+        $ev = crok_require_machine($db, $in);
+        crok_ensure_match_codes($db, (int)$ev['id']);
+        $eventId = (int)$ev['id'];
+
+        // Resolve the target match: match_code (preferred) | match_id | table (+round, +poule).
+        $m = null;
+        if (!empty($in['match_code'])) {
+            $st = $db->prepare("SELECT * FROM crok_match WHERE event_id=? AND UPPER(match_code)=UPPER(?)");
+            $st->execute([$eventId, trim((string)$in['match_code'])]);
+            $m = $st->fetch() ?: null;
+            if (!$m) crok_fail('Unknown match_code.', 404);
+        } elseif (!empty($in['match_id'])) {
+            $st = $db->prepare("SELECT * FROM crok_match WHERE id=? AND event_id=?");
+            $st->execute([(int)$in['match_id'], $eventId]);
+            $m = $st->fetch() ?: null;
+            if (!$m) crok_fail('Unknown match_id.', 404);
+        } elseif (isset($in['table'])) {
+            $round = (int)($in['round'] ?? $ev['current_round']);
+            $cands = array_values(array_filter(crok_matches($db, $eventId, $round),
+                fn($x) => (int)$x['table_no'] === (int)$in['table']));
+            if (!empty($in['poule'])) {
+                $pid = null;
+                foreach (crok_poules($db, $eventId) as $p) if (strcasecmp($p['name'], (string)$in['poule']) === 0) $pid = (int)$p['id'];
+                $cands = array_values(array_filter($cands, fn($x) => (int)$x['poule_id'] === $pid));
+            }
+            if (count($cands) === 0) crok_fail('No match at that table in round ' . $round . '.', 404);
+            if (count($cands) > 1) crok_fail('Table ' . (int)$in['table'] . ' is ambiguous in round ' . $round .
+                ' (' . count($cands) . ' matches). Send match_code, or add "poule".', 409);
+            $m = $cands[0];
+        } else {
+            crok_fail('Identify the match with match_code, match_id, or table.');
+        }
+
+        if (!$m['team_b_id']) crok_fail('That match is a bye — nothing to score.', 409);
+        $src = trim((string)($in['source'] ?? 'auto'));
+        $res = crok_apply_score($db, $ev, $m, $in, $src);
+
+        // Return the resulting state so the caller can confirm what was recorded.
+        $st = $db->prepare("SELECT * FROM crok_match WHERE id=?");
+        $st->execute([(int)$m['id']]);
+        $after = $st->fetch();
+        $w = crok_match_winner($after);
+        crok_json(['ok' => true, 'match' => crok_match_public($db, $ev, $after) + [
+            'winner_team_id' => $w,
+            'winner' => $w === null ? null : ($w === (int)$after['team_a_id'] ? 'a' : 'b'),
         ]]);
     }
 
@@ -317,43 +413,8 @@ try {
         if (!$okAdmin && !$okPlay && !$okCode && !$okMember) crok_fail('Not your match, or wrong code.', 403);
         if ($m['status'] === 'confirmed' && !$okAdmin) crok_fail('This result is locked by the organizer.', 409);
 
-        // Per-set entry: `sets` = up to 4 objects {pa,pb,ta,tb} (points + 20's per set).
-        // points_a/points_b store the TOTAL points; twenties_* the total 20's; the
-        // per-set breakdown is kept in sets_json. The match is won on total points.
-        $setsJson = null;
-        if (isset($in['sets']) && is_array($in['sets'])) {
-            $clean = []; $pa = $pb = $ta = $tb = 0;
-            foreach (array_slice($in['sets'], 0, 4) as $s) {
-                $row = [
-                    'pa' => max(0, (int)($s['pa'] ?? 0)), 'pb' => max(0, (int)($s['pb'] ?? 0)),
-                    'ta' => max(0, (int)($s['ta'] ?? 0)), 'tb' => max(0, (int)($s['tb'] ?? 0)),
-                ];
-                $clean[] = $row;
-                $pa += $row['pa']; $pb += $row['pb']; $ta += $row['ta']; $tb += $row['tb'];
-            }
-            $setsJson = json_encode($clean);
-        } else {
-            // Direct totals (organizer correction).
-            $pa = max(0, (int)($in['points_a'] ?? 0)); $pb = max(0, (int)($in['points_b'] ?? 0));
-            $ta = max(0, (int)($in['twenties_a'] ?? 0)); $tb = max(0, (int)($in['twenties_b'] ?? 0));
-        }
-        $by = trim((string)($in['entered_by'] ?? ''));
-        // Shoot-out winner (knockout, only when totals are equal): a team id, or null.
-        $so = isset($in['shootout_winner']) && $in['shootout_winner'] !== '' && $in['shootout_winner'] !== null
-            ? (int)$in['shootout_winner'] : null;
-        if ($so !== null && !in_array($so, [(int)$m['team_a_id'], (int)$m['team_b_id']], true)) $so = null;
-        // Auto-save always: 'progress' while filling in, 'entered' once confirmed at the end.
-        $status = !empty($in['complete']) ? 'entered' : 'progress';
-
-        if ($setsJson !== null) {
-            $up = $db->prepare("UPDATE crok_match SET points_a=?, points_b=?, twenties_a=?, twenties_b=?, sets_json=?, shootout_winner=?, status=?, entered_at=?, entered_by=? WHERE id=?");
-            $up->execute([$pa, $pb, $ta, $tb, $setsJson, $so, $status, time(), $by, $matchId]);
-        } else {
-            $up = $db->prepare("UPDATE crok_match SET points_a=?, points_b=?, twenties_a=?, twenties_b=?, shootout_winner=?, status=?, entered_at=?, entered_by=? WHERE id=?");
-            $up->execute([$pa, $pb, $ta, $tb, $so, $status, time(), $by, $matchId]);
-        }
-        if (($m['phase'] ?? '') === 'ko') crok_advance_bracket($db, $ev); // propagate winners
-        crok_json(['ok' => true, 'status' => $status]);
+        $res = crok_apply_score($db, $ev, $m, $in, trim((string)($in['entered_by'] ?? '')));
+        crok_json(['ok' => true, 'status' => $res['status']]);
     }
 
     /* ---------- organizer actions (admin_pin required) ------------------ */
@@ -396,6 +457,7 @@ try {
                 'points_tie' => (int)$ev['points_tie'], 'current_round' => (int)$ev['current_round'],
                 'advance_per_poule' => (int)($ev['advance_per_poule'] ?? 1),
                 'wildcards' => (int)($ev['wildcards'] ?? 0),
+                'api_key' => crok_ensure_api_key($db, $ev),
                 'poule_count' => count(crok_poules($db, $eventId)),
                 'status' => $ev['status'],
             ],

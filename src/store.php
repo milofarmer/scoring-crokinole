@@ -65,6 +65,7 @@ function crok_migrate(PDO $pdo, string $driver): void {
     )$eng");
     try { $pdo->exec("ALTER TABLE crok_event ADD COLUMN advance_per_poule INTEGER DEFAULT 1"); } catch (Throwable $e) {}
     try { $pdo->exec("ALTER TABLE crok_event ADD COLUMN wildcards INTEGER DEFAULT 0"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE crok_event ADD COLUMN api_key TEXT"); } catch (Throwable $e) {}
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS crok_poule (
         id        $pk,

@@ -56,6 +56,47 @@ function crok_matches(PDO $db, int $eventId, ?int $round = null): array {
     return $st->fetchAll();
 }
 
+/**
+ * Apply a score to a match. Shared by the phone (submit_score) and the machine
+ * ingest endpoint so both behave identically.
+ * $in may carry `sets` (per-set [{pa,pb,ta,tb}]) or direct totals points_a/points_b.
+ * Stores totals in points_a/points_b, the breakdown in sets_json, and advances the
+ * knockout bracket when a KO match changes.
+ */
+function crok_apply_score(PDO $db, array $ev, array $m, array $in, string $enteredBy = ''): array {
+    $setsJson = null;
+    if (isset($in['sets']) && is_array($in['sets'])) {
+        $clean = []; $pa = $pb = $ta = $tb = 0;
+        $val = fn($v) => ($v === '' || $v === null) ? null : max(0, (int)$v);
+        foreach (array_slice($in['sets'], 0, 4) as $s) {
+            $row = ['pa' => $val($s['pa'] ?? null), 'pb' => $val($s['pb'] ?? null),
+                    'ta' => (int)($s['ta'] ?? 0), 'tb' => (int)($s['tb'] ?? 0)];
+            $clean[] = $row;
+            $pa += $row['pa'] ?? 0; $pb += $row['pb'] ?? 0; $ta += $row['ta']; $tb += $row['tb'];
+        }
+        $setsJson = json_encode($clean);
+    } else {
+        $pa = max(0, (int)($in['points_a'] ?? 0)); $pb = max(0, (int)($in['points_b'] ?? 0));
+        $ta = max(0, (int)($in['twenties_a'] ?? 0)); $tb = max(0, (int)($in['twenties_b'] ?? 0));
+    }
+    $so = isset($in['shootout_winner']) && $in['shootout_winner'] !== '' && $in['shootout_winner'] !== null
+        ? (int)$in['shootout_winner'] : null;
+    if ($so !== null && !in_array($so, [(int)$m['team_a_id'], (int)$m['team_b_id']], true)) $so = null;
+    $status = !empty($in['complete']) ? 'entered' : 'progress';
+
+    if ($setsJson !== null) {
+        $db->prepare("UPDATE crok_match SET points_a=?, points_b=?, twenties_a=?, twenties_b=?, sets_json=?, shootout_winner=?, status=?, entered_at=?, entered_by=? WHERE id=?")
+           ->execute([$pa, $pb, $ta, $tb, $setsJson, $so, $status, time(), $enteredBy, (int)$m['id']]);
+    } else {
+        $db->prepare("UPDATE crok_match SET points_a=?, points_b=?, twenties_a=?, twenties_b=?, shootout_winner=?, status=?, entered_at=?, entered_by=? WHERE id=?")
+           ->execute([$pa, $pb, $ta, $tb, $so, $status, time(), $enteredBy, (int)$m['id']]);
+    }
+    if (($m['phase'] ?? '') === 'ko') crok_advance_bracket($db, $ev);
+
+    return ['status' => $status, 'points_a' => $pa, 'points_b' => $pb,
+            'twenties_a' => $ta, 'twenties_b' => $tb, 'shootout_winner' => $so];
+}
+
 /** Short, unambiguous, unique-within-event match code (shown on the big board). */
 function crok_gen_match_code(PDO $db, int $eventId): string {
     $alpha = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I,L,O,0,1
