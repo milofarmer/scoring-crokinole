@@ -17,7 +17,7 @@ import electronUpdater from 'electron-updater';
 import { app, dialog, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { decideUpdateAction } from './update-policy.ts';
+import { decideUpdateAction, describeUpdateError } from './update-policy.ts';
 
 const RELEASES_URL = 'https://github.com/milofarmer/scoring-crokinole/releases';
 
@@ -25,11 +25,6 @@ const RELEASES_URL = 'https://github.com/milofarmer/scoring-crokinole/releases';
 const FIRST_CHECK_MS = 45_000;
 /** A tournament lasts a day. Checking four times in one is plenty. */
 const REPEAT_CHECK_MS = 6 * 60 * 60 * 1000;
-
-function describe(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -195,7 +190,7 @@ export function createUpdateWatcher(options: {
       await dialog.showMessageBox({
         type: 'warning',
         message: 'Could not check for updates.',
-        detail: `${describe(error)}\n\nThis is normal without a network connection, or before the first release is published.`,
+        detail: `${describeUpdateError(error)}\n\nThis is normal without a network connection, or before the first release is published.`,
         buttons: ['OK'],
       });
     }

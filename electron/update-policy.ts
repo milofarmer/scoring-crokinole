@@ -8,6 +8,30 @@
  * Nothing here imports Electron, on purpose.
  */
 
+/**
+ * Turn an update failure into one line a person can read.
+ *
+ * electron-updater puts the whole HTTP response in its message: the status, the
+ * body, and every response header, cookies included. Shown raw that fills the
+ * dialog with a page of noise and puts Set-Cookie on screen, where it can end up
+ * in a screenshot of a support request.
+ */
+export function describeUpdateError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+
+  // By far the usual case: the repository has no release to compare against.
+  if (/\b404\b/.test(raw) || raw.includes('releases.atom')) {
+    return 'No release has been published yet, so there is nothing to compare this copy against.';
+  }
+  if (/ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNREFUSED|network/i.test(raw)) {
+    return 'The update server could not be reached.';
+  }
+
+  const firstLine = raw.split('\n')[0]?.trim() ?? '';
+  const trimmed = firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
+  return trimmed === '' ? 'The update check did not complete.' : trimmed;
+}
+
 export type UpdateAction =
   /** Nothing to say. */
   | { readonly kind: 'nothing' }

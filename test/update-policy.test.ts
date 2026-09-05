@@ -7,7 +7,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decideUpdateAction } from '../electron/update-policy.ts';
+import { decideUpdateAction, describeUpdateError } from '../electron/update-policy.ts';
 
 test('nothing to say when this copy is current', () => {
   assert.deepEqual(
@@ -65,4 +65,57 @@ test('an unknown tournament state is treated as live', () => {
     { kind: 'menu-only', version: '2.1.0' },
     'silence is the safe answer when we cannot tell',
   );
+});
+
+/* ---- what a failure looks like on screen ---- */
+
+/**
+ * The real message electron-updater produced when the repository had no
+ * release. Kept verbatim, because the failure it caused was not the 404 but
+ * everything after it: the whole response, headers and Set-Cookie included,
+ * dumped into a dialog.
+ */
+const REAL_404 = `404
+"method: GET url: https://github.com/milofarmer/scoring-crokinole/releases.atom
+
+Please double check that your authentication token is correct. Due to security reasons, actual status maybe not reported, but 404.
+"
+Headers: {
+"cache-control": "no-cache",
+"content-type": "text/plain; charset=utf-8",
+"server": "github.com",
+"set-cookie": [
+"_gh_sess=B267S9tWBPhJ9L3g7McoW%2F1RMtNJNF%2Fua8w; path=/; HttpOnly; secure; SameSite=Lax",
+"logged_in=no; expires=Sun, 05 Sep 2027 22:14:47 GMT; domain=.github.com; path=/; HttpOnly; secure"
+]
+}`;
+
+test('a missing release is explained, not dumped', () => {
+  const shown = describeUpdateError(new Error(REAL_404));
+  assert.equal(
+    shown,
+    'No release has been published yet, so there is nothing to compare this copy against.',
+  );
+  assert.ok(!shown.includes('set-cookie'), 'a dialog must never put cookies on screen');
+  assert.ok(!shown.includes('_gh_sess'), 'a session cookie must never reach the screen');
+  assert.ok(shown.length < 120, 'one readable line, not a page');
+});
+
+test('a network failure says so plainly', () => {
+  for (const raw of ['getaddrinfo ENOTFOUND github.com', 'connect ETIMEDOUT 140.82.121.3:443']) {
+    assert.equal(describeUpdateError(new Error(raw)), 'The update server could not be reached.');
+  }
+});
+
+test('anything else is cut down to one short line', () => {
+  const long = new Error(`something went wrong\n${'x'.repeat(500)}`);
+  const shown = describeUpdateError(long);
+  assert.equal(shown, 'something went wrong');
+
+  const noNewline = new Error('y'.repeat(400));
+  assert.ok(describeUpdateError(noNewline).length <= 160);
+  assert.ok(describeUpdateError(noNewline).endsWith('...'));
+
+  assert.equal(describeUpdateError(new Error('')), 'The update check did not complete.');
+  assert.equal(describeUpdateError('a plain string'), 'a plain string');
 });
