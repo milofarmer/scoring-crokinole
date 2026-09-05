@@ -49,30 +49,44 @@ async function tick(){
 function setView(v){
   VIEW=v;
   document.querySelectorAll('.viewnav [data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
-  if(v==='poule') startPoulePaging(); else stopPoulePaging();
+  if(v==='poule'){ poulePage=0; startPoulePaging(); } else stopPoulePaging();
   tick();
+  if($('#autocycle').checked) startCycle();   // re-arm with this view's dwell time
 }
 document.querySelectorAll('.viewnav [data-view]').forEach(b=>b.onclick=()=>{ stopCycle(); $('#autocycle').checked=false; setView(b.dataset.view); });
 
+/**
+ * The board refreshes every couple of seconds. Rebuilding it every time made the
+ * screen flash, so the markup is only written when it has actually changed.
+ * A score arriving updates that one line; an unchanged board is left alone.
+ */
+let lastHtml = '';
 function render(){
   const g=$('#grid');
   const P = (STATE.poules&&STATE.poules.length) ? STATE.poules.length : 2;
+  let html='', cls='board-grid', cols=null;
+
   if(VIEW==='poule'){
-    const shown = (pouleePages()[poulePage]||[]).length || 1;
-    g.className='board-grid'; g.style.setProperty('--cols', Math.min(shown, POULES_PER_PAGE));
-    g.innerHTML=renderRank();
+    cols = Math.min((pouleePages()[poulePage]||[]).length || 1, POULES_PER_PAGE);
+    html = renderRank();
   } else if(VIEW==='ko'){
-    g.className='ko-wrap'; g.innerHTML=renderKnockout();
+    cls='ko-wrap'; html = renderKnockout();
   } else {
-    g.className='board-grid'; const cols=STATE.event.is_knockout?1:Math.min(P,6); g.style.setProperty('--cols',cols); g.innerHTML=renderTables();
+    cols = STATE.event.is_knockout ? 1 : Math.min(P,6);
+    html = renderTables();
   }
-  g.classList.remove('fade'); void g.offsetWidth; g.classList.add('fade');
+
+  if(g.className!==cls) g.className=cls;
+  if(cols!==null) g.style.setProperty('--cols', cols);
+  if(html!==lastHtml){ g.innerHTML=html; lastHtml=html; }
 }
 
 /* ---- poule stages (ranking) ----
    More than a handful of poules cannot be read from across a hall, so the board
    shows a page of them at a time and moves on by itself. */
 const POULES_PER_PAGE = 4;
+const POULE_PAGE_MS = 6000;   // how long one page of poules stays up
+const VIEW_DWELL_MS = 18000;  // how long the other views stay up
 let poulePage = 0, pouleTimer = null;
 
 function pouleePages(){
@@ -86,7 +100,7 @@ function pouleePages(){
 function startPoulePaging(){
   stopPoulePaging();
   if(pouleePages().length<2) return;
-  pouleTimer=setInterval(()=>{ poulePage=(poulePage+1)%pouleePages().length; if(VIEW==='poule') render(); }, 12000);
+  pouleTimer=setInterval(()=>{ poulePage=(poulePage+1)%pouleePages().length; if(VIEW==='poule') render(); }, POULE_PAGE_MS);
 }
 function stopPoulePaging(){ if(pouleTimer){ clearInterval(pouleTimer); pouleTimer=null; } }
 
@@ -203,9 +217,18 @@ function bmInner(m){
     +'<div class="bmt'+(m.win==='b'?' win':'')+'"><span class="dot disc-b"></span><b>'+(m.b?esc(m.b):'—')+'</b>'+(m.win==='b'?so:'')+'<span class="sc">'+sb+'</span></div>';
 }
 
-/* ---- auto-cycle ---- */
-function startCycle(){ stopCycle(); cycleTimer=setInterval(()=>{ const i=VIEWS.indexOf(VIEW); setView(VIEWS[(i+1)%VIEWS.length]); }, 18000); }
-function stopCycle(){ if(cycleTimer){clearInterval(cycleTimer);cycleTimer=null;} }
+/* ---- auto-cycle ----
+   The poule view has to show every page before the board moves on, otherwise the
+   last poules would never appear on screen. */
+function dwellFor(view){
+  if(view!=='poule') return VIEW_DWELL_MS;
+  return Math.max(1, pouleePages().length) * POULE_PAGE_MS;
+}
+function startCycle(){
+  stopCycle();
+  cycleTimer=setTimeout(()=>{ const i=VIEWS.indexOf(VIEW); setView(VIEWS[(i+1)%VIEWS.length]); }, dwellFor(VIEW));
+}
+function stopCycle(){ if(cycleTimer){clearTimeout(cycleTimer);cycleTimer=null;} }
 $('#autocycle').onchange=e=>{ if(e.target.checked){ startCycle(); } else stopCycle(); };
 
 // collapsible header to free up screen space
