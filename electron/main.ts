@@ -7,7 +7,7 @@
  */
 import { Tray, app, clipboard, nativeImage, shell } from 'electron';
 import { assetPath, pageName, serverPaths, type ServerPaths } from './paths.ts';
-import { createServer, type ServerHandle, type ServerStatus } from './server-process.ts';
+import { createServer, findFreePort, type ServerHandle, type ServerStatus } from './server-process.ts';
 import { buildMenu } from './tray-menu.ts';
 import { createUpdateWatcher, type UpdateWatcher } from './updates.ts';
 
@@ -44,8 +44,9 @@ function joinAddress(status: ServerStatus): string | null {
 let tray: Tray | null = null;
 let shuttingDown = false;
 
-function start(): void {
-  const port = readPort(process.env.PORT);
+async function start(): Promise<void> {
+  // Step past anything already using the preferred port rather than failing.
+  const port = await findFreePort(readPort(process.env.PORT));
   const paths: ServerPaths = serverPaths();
 
   const pages = {
@@ -132,6 +133,6 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     // No dock icon: this lives in the menu bar.
     app.dock?.hide();
-    start();
+    void start();
   });
 }

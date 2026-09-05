@@ -7,6 +7,7 @@
  * organiser's machine to have a matching Node installed.
  */
 import fs from 'node:fs';
+import net from 'node:net';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import type { ServerPaths } from './paths.ts';
 
@@ -24,6 +25,38 @@ export interface ServerHandle {
 
 /** How long a polite SIGTERM gets before the port is taken back by force. */
 const STOP_GRACE_MS = 3000;
+
+/** How many ports to try past the preferred one before giving up. */
+const PORT_ATTEMPTS = 10;
+
+function portIsFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.once('listening', () => probe.close(() => resolve(true)));
+    probe.listen(port, '0.0.0.0');
+  });
+}
+
+/**
+ * The first port nothing else is sitting on.
+ *
+ * Without this the app looks broken rather than blocked: the server cannot bind,
+ * dies, and every menu item greys out with no hint that something else has the
+ * port. Plenty of laptops have something on 8085 already, and an organiser
+ * setting up in a hall is in no position to go hunting for it. Moving over one
+ * costs nothing, because the address players use is read off the running server
+ * rather than assumed.
+ */
+export async function findFreePort(preferred: number): Promise<number> {
+  for (let offset = 0; offset < PORT_ATTEMPTS; offset += 1) {
+    const candidate = preferred + offset;
+    if (candidate > 65535) break;
+    if (await portIsFree(candidate)) return candidate;
+  }
+  // Nothing free nearby: use the preferred one so the failure names it.
+  return preferred;
+}
 
 /** The server announces itself by printing the addresses it can be reached on. */
 const URL_PATTERN = /https?:\/\/\S+/g;
