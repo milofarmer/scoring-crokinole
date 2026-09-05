@@ -9,7 +9,7 @@ import { Tray, app, clipboard, nativeImage, shell } from 'electron';
 import { assetPath, pageName, serverPaths, type ServerPaths } from './paths.ts';
 import { createServer, type ServerHandle, type ServerStatus } from './server-process.ts';
 import { buildMenu } from './tray-menu.ts';
-import { checkForUpdates } from './updates.ts';
+import { createUpdateWatcher, type UpdateWatcher } from './updates.ts';
 
 /** Matches the server's own default, so the links here point where it listens. */
 const DEFAULT_PORT = 8085;
@@ -68,11 +68,14 @@ function start(): void {
   tray = item;
 
   let server: ServerHandle | null = null;
+  let updates: UpdateWatcher | null = null;
+  let lastStatus: ServerStatus | null = null;
 
   const refresh = (status: ServerStatus): void => {
+    lastStatus = status;
     const address = joinAddress(status);
     item.setContextMenu(
-      buildMenu(status, address, {
+      buildMenu({ status, joinAddress: address, pendingUpdate: updates?.pending() ?? null }, {
         openBoard: () => openPage(pages.board),
         openOrganiser: () => openPage(pages.organiser),
         openScoreEntry: () => openPage(pages.scoreEntry),
@@ -81,13 +84,19 @@ function start(): void {
           if (address !== null) clipboard.writeText(address);
         },
         restartServer: () => server?.restart(),
-        checkForUpdates: () => void checkForUpdates(),
+        checkForUpdates: () => updates?.checkNow(),
         quit: () => app.quit(),
       }),
     );
   };
 
   server = createServer(paths, port, refresh);
+  // Redraw the menu when an update turns up, so the new line appears without
+  // waiting for the server's status to change.
+  updates = createUpdateWatcher({
+    port,
+    onChange: () => { if (lastStatus !== null) refresh(lastStatus); },
+  });
   refresh(server.status());
 
   const shutdown = (): void => {
@@ -97,6 +106,9 @@ function start(): void {
     // though the server needs a moment to let go.
     tray?.destroy();
     tray = null;
+    // A pending timer would keep the process alive after the window is gone.
+    updates?.stop();
+    updates = null;
     // Quitting while the child still holds the port would leave the next launch
     // unable to bind it, so wait for the server to be gone before leaving.
     server?.stop(() => app.quit());

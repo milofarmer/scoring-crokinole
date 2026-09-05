@@ -6,6 +6,13 @@
 import { Menu, type MenuItemConstructorOptions } from 'electron';
 import type { ServerStatus } from './server-process.ts';
 
+export interface MenuState {
+  readonly status: ServerStatus;
+  readonly joinAddress: string | null;
+  /** A version waiting on the releases page, or null. */
+  readonly pendingUpdate: string | null;
+}
+
 export interface MenuActions {
   readonly openBoard: () => void;
   readonly openOrganiser: () => void;
@@ -36,8 +43,16 @@ function statusItems(status: ServerStatus, joinAddress: string | null, actions: 
   ];
 }
 
-export function buildMenu(status: ServerStatus, joinAddress: string | null, actions: MenuActions): Menu {
+export function buildMenu(state: MenuState, actions: MenuActions): Menu {
+  const { status, joinAddress, pendingUpdate } = state;
   const running = status.kind === 'running';
+
+  /* An update found on its own says so here and nowhere else. During a
+     tournament this line is the whole notification, on purpose: the projector
+     is showing the hall a final, and a dialog over it would be unforgivable. */
+  const updateItem: MenuItemConstructorOptions = pendingUpdate === null
+    ? { label: 'Check for updates…', click: actions.checkForUpdates }
+    : { label: `Update available: ${pendingUpdate}`, click: actions.checkForUpdates };
 
   const template: MenuItemConstructorOptions[] = [
     ...statusItems(status, joinAddress, actions),
@@ -47,7 +62,7 @@ export function buildMenu(status: ServerStatus, joinAddress: string | null, acti
     { label: 'Open score entry', enabled: running, click: actions.openScoreEntry },
     { label: 'Copy join address', enabled: joinAddress !== null, click: actions.copyJoinAddress },
     { type: 'separator' },
-    { label: 'Check for updates…', click: actions.checkForUpdates },
+    updateItem,
     { label: 'Quit', accelerator: 'Command+Q', click: actions.quit },
   ];
 
