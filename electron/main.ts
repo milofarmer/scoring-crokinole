@@ -10,9 +10,13 @@ import { assetPath, pageName, serverPaths, type ServerPaths } from './paths.ts';
 import { createServer, findFreePort, type ServerHandle, type ServerStatus } from './server-process.ts';
 import { buildMenu } from './tray-menu.ts';
 import { createUpdateWatcher, type UpdateWatcher } from './updates.ts';
+import { announceName, type Announcement } from './announce.ts';
 
 /** Matches the server's own default, so the links here point where it listens. */
 const DEFAULT_PORT = 8085;
+
+/** What the tournament calls itself on the hall network: croki.local. */
+const NETWORK_NAME = 'croki';
 
 /**
  * Page file names, most wanted first. The served pages are being moved from PHP
@@ -33,8 +37,11 @@ function readPort(raw: string | undefined): number {
  * What a phone should type in. The server prints localhost first, but that is no
  * use to anyone else in the hall, so prefer an address on the network.
  */
-function joinAddress(status: ServerStatus): string | null {
+function joinAddress(status: ServerStatus, announced: string | null): string | null {
   if (status.kind !== 'running') return null;
+  // The announced name is the one worth reading out from a projector, so prefer
+  // it over an address that changes with every router.
+  if (announced !== null) return `http://${announced}`;
   const local = /\/\/(localhost|127\.0\.0\.1)[:/]/;
   return status.addresses.find((url) => !local.test(url)) ?? status.addresses[0] ?? null;
 }
@@ -70,11 +77,12 @@ async function start(): Promise<void> {
 
   let server: ServerHandle | null = null;
   let updates: UpdateWatcher | null = null;
+  let announcement: Announcement | null = null;
   let lastStatus: ServerStatus | null = null;
 
   const refresh = (status: ServerStatus): void => {
     lastStatus = status;
-    const address = joinAddress(status);
+    const address = joinAddress(status, announcement?.name() ?? null);
     item.setContextMenu(
       buildMenu({ status, joinAddress: address, pendingUpdate: updates?.pending() ?? null }, {
         openBoard: () => openPage(pages.board),
@@ -91,7 +99,12 @@ async function start(): Promise<void> {
     );
   };
 
-  server = createServer(paths, port, refresh);
+  /* Announce the name before the server starts, so it is already being answered
+     by the time the first phone tries it. The server is told the name so the
+     board can show it instead of a numeric address. */
+  announcement = announceName({ name: NETWORK_NAME, port });
+
+  server = createServer(paths, port, refresh, announcement.name() ?? '');
   // Redraw the menu when an update turns up, so the new line appears without
   // waiting for the server's status to change.
   updates = createUpdateWatcher({
@@ -110,6 +123,9 @@ async function start(): Promise<void> {
     // A pending timer would keep the process alive after the window is gone.
     updates?.stop();
     updates = null;
+    // Stopping takes the name off the network; the numeric address is unaffected.
+    announcement?.stop();
+    announcement = null;
     // Quitting while the child still holds the port would leave the next launch
     // unable to bind it, so wait for the server to be gone before leaving.
     server?.stop(() => app.quit());

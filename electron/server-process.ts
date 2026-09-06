@@ -136,6 +136,8 @@ export function createServer(
   paths: ServerPaths,
   port: number,
   onChange: (status: ServerStatus) => void,
+  /** The name being answered on this network, so the board can show it. */
+  hostname = '',
 ): ServerHandle {
   let child: ChildProcess | null = null;
   let status: ServerStatus = { kind: 'starting' };
@@ -164,6 +166,9 @@ export function createServer(
         ...process.env,
         ELECTRON_RUN_AS_NODE: '1',
         PORT: String(port),
+        // What the board shows players instead of a numeric address, when a name
+        // is being answered on this network.
+        CROK_HOSTNAME: hostname,
         CROK_PUBLIC_DIR: paths.publicDir,
         CROK_DB_PATH: paths.databasePath,
       },
