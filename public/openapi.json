@@ -180,6 +180,29 @@
         "responses": { "200": { "description": "The leaderboard.", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "const": true }, "season": { "type": ["string", "null"] }, "standings": { "type": "array", "items": { "type": "object" } }, "nights": { "type": "array", "items": { "type": "object" } } } } } } } }
       }
     },
+    "/api/api_info": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "The key and the addresses",
+        "operationId": "apiInfo",
+        "description": "Where this tournament can be reached and with what, so the organiser can hand it to whoever is wiring something up. The server knows its own addresses; a page would only be guessing at them.",
+        "security": [{ "AdminPin": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin"], "properties": { "admin_pin": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "The key, the addresses, and whether croki.nl is paired." }, "401": { "$ref": "#/components/responses/BadPin" } }
+      }
+    },
+    "/api/simulate": {
+      "post": {
+        "tags": ["Organiser"],
+        "summary": "Fill the tournament with plausible play",
+        "operationId": "simulate",
+        "description": "For trying things out: seeing the board from the back of the hall, checking the bracket, giving a scoring system something to read.\n\nIt writes through the same path a real result takes, so what comes out behaves like a real tournament rather than being a special case that only looks right.\n\n**This replaces whatever tournament is there.** There is no undo.",
+        "security": [{ "AdminPin": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["admin_pin"], "properties": { "admin_pin": { "type": "string" }, "entrants": { "type": "integer", "default": 44, "maximum": 44 }, "discipline": { "type": "string", "enum": ["singles", "doubles"], "default": "doubles" }, "rounds_played": { "type": "integer", "description": "How many poule rounds to play out. The rest are drawn and left empty." }, "knockout": { "type": "boolean", "default": true, "description": "Play the bracket down to the final as well." } } }, "examples": { "full": { "summary": "A full NK, played to the final", "value": { "admin_pin": "1234", "entrants": 44, "knockout": true } }, "midway": { "summary": "Stopped partway through the poules", "value": { "admin_pin": "1234", "entrants": 24, "rounds_played": 1, "knockout": false } } } } }
+        },
+        "responses": { "200": { "description": "What was built.", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "const": true }, "teams": { "type": "integer" }, "poules": { "type": "integer" }, "rounds": { "type": "integer" }, "matchesScored": { "type": "integer" }, "knockoutDrawn": { "type": "boolean" } } }, "example": { "ok": true, "teams": 44, "poules": 11, "rounds": 3, "matchesScored": 75, "knockoutDrawn": true } } } }, "401": { "$ref": "#/components/responses/BadPin" } }
+      }
+    },
     "/api/admin_login": {
       "post": {
         "tags": ["Organiser"],

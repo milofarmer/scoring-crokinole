@@ -154,27 +154,70 @@
     </div>
 
     <div class="card">
-      <h2>Automated scoring (inbound API)</h2>
-      <p class="muted" style="font-size:13px;margin-top:-4px">For an AI/table system that scores matches automatically. It posts to <code>api.php</code> with this key; everything else stays manual.</p>
-      <label class="field"><span class="lab">API key</span>
-        <input id="apiKey" readonly onclick="this.select()" style="font-family:var(--mono);font-size:13px"></label>
-      <details>
-        <summary class="mono muted" style="cursor:pointer;font-size:13px">How to call it</summary>
-        <pre style="background:var(--panel-2);border-radius:10px;padding:12px;overflow:auto;font-size:12px;line-height:1.5">POST /api.php   (JSON, or header X-Api-Key)
+      <h2>API</h2>
+      <p class="muted" style="font-size:13px;margin-top:-4px">
+        Everything the screens do is a call anything else can make: a camera system scoring
+        tables, a control surface driving the board, a script pulling results.</p>
 
-1. What is on each table now
-{ "action":"ingest_tables", "api_key":"KEY" }
+      <div class="apirow">
+        <span class="apilab">Key</span>
+        <input id="apiKey" readonly onclick="this.select()">
+        <button class="menu-btn" data-copy="#apiKey">Copy</button>
+      </div>
+      <p class="muted" style="font-size:12.5px;margin:-4px 0 14px">
+        Send it as an <code>X-Api-Key</code> header. It is scoped to this tournament, so it
+        cannot touch another one.</p>
 
-2. Score a match  (identify by match_code, match_id, or table)
-{ "action":"ingest_score", "api_key":"KEY",
-  "match_code":"MD55",
-  "sets":[ {"pa":30,"pb":24,"ta":1,"tb":0}, ... ],   // per set: points + 20's
-  "complete":true,                                    // false = live/partial
-  "source":"ai-table-3" }
+      <div class="subhead2">On this laptop</div>
+      <div class="apirow">
+        <span class="apilab">Here</span>
+        <input id="addrLocal" readonly onclick="this.select()">
+        <button class="menu-btn" data-copy="#addrLocal">Copy</button>
+      </div>
+      <div id="addrLanRows"></div>
+      <p class="muted" style="font-size:12.5px;margin:-4px 0 14px">
+        Anything in the hall uses a network address. The first one is only reachable from
+        this machine.</p>
 
-Totals instead of sets: "points_a":118, "points_b":96, "twenties_a":4, "twenties_b":3
-Knockout tie: add "shootout_winner": &lt;team_id&gt;</pre>
+      <div class="subhead2">Through croki.nl</div>
+      <div class="apirow">
+        <span class="apilab">Service</span>
+        <input id="addrCroki" readonly onclick="this.select()">
+        <button class="menu-btn" data-copy="#addrCroki">Copy</button>
+      </div>
+      <p class="muted" id="crokiNote" style="font-size:12.5px;margin:-4px 0 14px"></p>
+
+      <div class="row" style="gap:8px;margin-bottom:6px">
+        <a class="menu-btn" href="api-docs.php" target="_blank" rel="noopener">Open the API reference</a>
+        <a class="menu-btn" href="openapi.json" download>Download the spec</a>
+      </div>
+
+      <details style="margin-top:10px">
+        <summary class="mono muted" style="cursor:pointer;font-size:13px">A worked example</summary>
+        <pre id="apiExample" class="apipre"></pre>
       </details>
+    </div>
+
+    <div class="card">
+      <h2>Try it out</h2>
+      <p class="muted" style="font-size:13px;margin-top:-4px">
+        Fill the tournament with plausible play, so you can see the board from the back of
+        the hall, check the bracket, or give a scoring system something to read. It writes
+        through the same path a real result takes, so what comes out behaves like the real
+        thing.</p>
+      <div class="row">
+        <label class="field"><span class="lab">How many teams</span>
+          <input id="simTeams" class="num" type="number" min="2" max="44" value="44"></label>
+        <label class="field"><span class="lab">How far to play</span>
+          <select id="simHow">
+            <option value="poules">The poules only</option>
+            <option value="all" selected>All the way to the final</option>
+            <option value="part">Partly through the poules</option>
+          </select></label>
+      </div>
+      <button class="btn wide" id="simBtn">Simulate a tournament</button>
+      <p class="muted center" style="font-size:12.5px;margin-bottom:0">
+        This replaces whatever is here now.</p>
     </div>
 
     <div class="card">
@@ -418,6 +461,7 @@ async function refresh(){
   $('#sRounds').value=r.event.num_rounds;
   $('#sStatus').value=r.event.status;
   $('#apiKey').value=r.event.api_key||'';
+  loadApiInfo();
   fillRoundSelects();
   renderPoules(); renderTeams(); renderMatches(); renderKo();
 }
@@ -493,6 +537,85 @@ $('#addPoule').onclick = async ()=>{
   list.push({name, tables:+$('#pTables').value||11});
   const r = await api('set_poules', {poules:list});
   if(r.ok){ $('#pName').value=''; toast('Poule added'); refresh(); } else toast(r.error,true);
+};
+
+/* ---- the API menu ----
+   The addresses come from the server, which knows what they are; the page would
+   only be guessing. */
+let API_INFO = null;
+
+async function loadApiInfo(){
+  const r = await api('api_info', {});
+  if(!r.ok) return;
+  API_INFO = r;
+
+  $('#addrLocal').value = r.addresses.this_machine;
+
+  const lan = r.addresses.on_the_network || [];
+  const friendly = r.addresses.friendly;
+  const rows = [];
+  if(friendly) rows.push(['Name', friendly, 'addrName']);
+  lan.forEach((url,i)=> rows.push([i===0?'Network':'Also', url, 'addrLan'+i]));
+  $('#addrLanRows').innerHTML = rows.length
+    ? rows.map(([lab,url,id])=>`<div class="apirow"><span class="apilab">${esc(lab)}</span>
+        <input id="${id}" readonly onclick="this.select()" value="${esc(url)}">
+        <button class="menu-btn" data-copy="#${id}">Copy</button></div>`).join('')
+    : '<p class="muted" style="font-size:13px">This laptop is not on a network, so nothing else can reach it.</p>';
+
+  $('#addrCroki').value = r.croki.base || '';
+  $('#crokiNote').textContent = r.croki.paired
+    ? 'Players can score from anywhere through this address.'
+    : 'Not paired yet. Until it is, players score on the hall wifi and this address does nothing.';
+
+  const base = lan[0] || r.addresses.this_machine;
+  $('#apiExample').textContent =
+`# what is on each table right now
+curl ${base}/api/ingest_tables \\
+  -H 'X-Api-Key: ${r.api_key}'
+
+# send a result: four sets, points and 20's for both sides
+curl -X POST ${base}/api/ingest_score \\
+  -H 'X-Api-Key: ${r.api_key}' \\
+  -H 'Content-Type: application/json' \\
+  -d '{"table":7,
+       "sets":[{"pa":21,"pb":20,"ta":1,"tb":0}],
+       "complete":false,
+       "source":"table-cam-7"}'
+
+# put the knockout on the big screen
+curl -X POST ${base}/api/board_control \\
+  -H 'X-Api-Key: ${r.api_key}' \\
+  -H 'Content-Type: application/json' \\
+  -d '{"view":"ko"}'`;
+}
+
+// One copy handler for every copy button, present and future.
+document.addEventListener('click', async (e)=>{
+  const btn = e.target.closest('[data-copy]');
+  if(!btn) return;
+  const field = $(btn.dataset.copy);
+  if(!field) return;
+  try { await navigator.clipboard.writeText(field.value); toast('Copied'); }
+  catch { field.select(); toast('Press cmd-C to copy', true); }
+});
+
+$('#simBtn').onclick = async ()=>{
+  const teams = +$('#simTeams').value || 44;
+  const how = $('#simHow').value;
+  if(!confirm('This replaces the tournament that is here now. Continue?')) return;
+
+  const btn = $('#simBtn');
+  btn.disabled = true; btn.textContent = 'Simulating…';
+  const r = await api('simulate', {
+    entrants: teams,
+    knockout: how === 'all',
+    rounds_played: how === 'part' ? 1 : 99,
+  });
+  btn.disabled = false; btn.textContent = 'Simulate a tournament';
+
+  if(!r.ok){ toast(r.error, true); return; }
+  toast(r.teams + ' teams, ' + r.matchesScored + ' matches played');
+  refresh();
 };
 
 /* teams */

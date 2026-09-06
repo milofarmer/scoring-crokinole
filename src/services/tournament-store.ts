@@ -401,6 +401,17 @@ export function createTournamentStore(db: Db) {
       return row === undefined ? 0 : numOrNull(asRow(row).board_seq, 'event.board_seq') ?? 0;
     },
 
+    /**
+     * Remove a tournament and everything under it. Used when starting again from
+     * nothing, so an old event cannot linger and be picked up as the active one.
+     */
+    deleteEvent(eventId: number): void {
+      db.prepare('DELETE FROM crok_match WHERE event_id = ?').run(eventId);
+      db.prepare('DELETE FROM crok_team WHERE event_id = ?').run(eventId);
+      db.prepare('DELETE FROM crok_poule WHERE event_id = ?').run(eventId);
+      db.prepare('DELETE FROM crok_event WHERE id = ?').run(eventId);
+    },
+
     /** Lock or unlock a result. Confirmed means a phone can no longer change it. */
     setMatchStatus(matchId: number, status: string): void {
       db.prepare('UPDATE crok_match SET status = ? WHERE id = ?').run(status, matchId);

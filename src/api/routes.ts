@@ -15,6 +15,8 @@ import type { ApiContext, Failure, Result } from './context.ts';
 import { STATUS_BY_REASON, fail, machineKey, requireEvent, secretMatches, succeed } from './context.ts';
 import { applyScore, authoriseScore, type ScoreInput } from './score.ts';
 import { drawKnockout, drawRound } from './draw.ts';
+import { simulateTournament } from './simulate.ts';
+import { lanAddresses } from '../services/addresses.ts';
 import { serialiseIngestMatch, serialiseMatch, serialiseScheduleMatch, serialiseStanding, teamLookup } from './serialise.ts';
 import { isRecord } from '../services/rows.ts';
 import { makeCode, type StoredEvent } from '../services/tournament-store.ts';
@@ -345,6 +347,64 @@ export function createRouter(context: ApiContext): Router {
 
     const seq = context.store.setBoardCommand(event.id, command);
     return res.json({ ok: true, ...command, seq });
+  });
+
+  /**
+   * Where this tournament can be reached, and with what.
+   *
+   * The organiser screen needs the addresses and the key in one place so they can
+   * be handed to whoever is wiring something up. The server knows its own
+   * addresses; the screen would only be guessing at them.
+   */
+  router.post('/api_info', (req, res) => {
+    const event = asOrganiser(req, res);
+    if (event === null) return undefined;
+
+    const port = context.config.port;
+    const lan = lanAddresses().map((address) => `http://${address}:${port}`);
+    return res.json({
+      ok: true,
+      api_key: machineKey(context, event),
+      play_code: event.playCode,
+      addresses: {
+        this_machine: `http://localhost:${port}`,
+        on_the_network: lan,
+        friendly: context.config.hostname === '' ? null : `http://${context.config.hostname}`,
+      },
+      docs: '/api-docs.php',
+      spec: '/openapi.json',
+      croki: {
+        // Filled in once this tournament is paired with the service that lets
+        // players score from outside the hall.
+        paired: false,
+        base: context.config.crokiBaseUrl,
+      },
+    });
+  });
+
+  /**
+   * Fill the tournament with plausible play, for trying things out.
+   *
+   * Destructive on purpose: it replaces whatever is there. The screen asks first.
+   */
+  router.post('/simulate', (req, res) => {
+    const event = asOrganiser(req, res);
+    if (event === null) return undefined;
+    const fields = body(req);
+
+    const entrants = optionalNumber(fields.entrants) ?? 44;
+    const discipline = text(fields.discipline) === 'singles' ? 'singles' : 'doubles';
+    const played = optionalNumber(fields.rounds_played);
+    const result = simulateTournament(context, {
+      name: text(fields.name) || 'Simulated tournament',
+      entrants,
+      discipline,
+      roundsPlayed: played ?? 99,
+      knockout: fields.knockout !== false && fields.knockout !== 'false',
+      adminPin: event.adminPin,
+      playCode: event.playCode,
+    });
+    return res.json({ ok: true, ...result });
   });
 
   /* ---- the organiser ---- */
