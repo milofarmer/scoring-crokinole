@@ -17,20 +17,54 @@
       <p id="loginErr" class="muted center" style="color:var(--red)"></p>
     </div>
 
+    <!-- Setting a tournament up asks the two things that actually change between
+         events: how many are playing, and whether it is singles or doubles.
+         Everything else follows from those and is shown before anything is made. -->
     <div id="createCard" class="card hidden">
-      <h2>Create tournament</h2>
+      <h2>New tournament</h2>
+
       <label class="field"><span class="lab">Name</span><input id="cName" value="NK Crokinole"></label>
+
       <div class="row">
-        <label class="field"><span class="lab">Table code (players)</span><input id="cCode" placeholder="e.g. NK2026"></label>
-        <label class="field"><span class="lab">Organizer PIN</span><input id="cPin" placeholder="secret"></label>
+        <label class="field"><span class="lab">Playing as</span>
+          <select id="cDiscipline">
+            <option value="doubles" selected>Doubles — teams of two</option>
+            <option value="singles">Singles — one player each</option>
+          </select></label>
+        <label class="field"><span class="lab" id="cEntrantsLab">How many teams</span>
+          <input id="cEntrants" class="num" type="number" min="2" max="200" value="44"></label>
       </div>
+
       <div class="row">
-        <label class="field"><span class="lab">Rounds</span><input id="cRounds" class="num" type="number" value="4"></label>
-        <p class="muted" style="font-size:13px;grid-column:1/-1;margin:0">
-          Scoring is fixed: each of the 4 sets is worth 2 to the team that wins it,
-          or 1 each if the set is level. 8 points per match.</p>
+        <label class="field"><span class="lab">Organizer PIN</span>
+          <input id="cPin" placeholder="you will need this to run the day"></label>
+        <label class="field"><span class="lab">Shared code for players (optional)</span>
+          <input id="cCode" placeholder="usually leave this empty"></label>
       </div>
-      <button class="btn wide" id="createBtn">Create &amp; start</button>
+
+      <!-- What the numbers above will produce, before anything is created. -->
+      <div class="plan" id="cPlan"></div>
+
+      <p class="muted" style="font-size:12.5px;margin:-8px 0 12px">
+        Each match already shows its own code on the board, which is what players
+        normally use. A shared code is a spare key that opens every match, for when
+        you would rather not read codes out one at a time.</p>
+
+      <button class="btn wide" id="createBtn">Create tournament</button>
+      <p class="muted center" style="font-size:12.5px;margin-bottom:0">
+        Nothing is drawn yet. You add the names next.</p>
+    </div>
+
+    <!-- Step two: the names. A paste of a list beats 44 trips through a form. -->
+    <div id="entriesCard" class="card hidden">
+      <h2>Add the <span id="eNoun">teams</span></h2>
+      <p class="muted" id="eHelp" style="font-size:14px;margin-top:-4px"></p>
+      <textarea id="eList" rows="10" spellcheck="false" placeholder=""></textarea>
+      <div class="plan" id="ePreview"></div>
+      <div class="row">
+        <button class="btn" id="eAddBtn">Add them</button>
+        <button class="menu-btn" id="eSkipBtn">Skip for now</button>
+      </div>
     </div>
   </div>
 
@@ -215,12 +249,160 @@ $('#loginBtn').onclick = async ()=>{
   if(r.ok){ $('#loginErr').textContent=''; show(); }
   else { $('#loginErr').textContent = r.error||'Wrong PIN'; sessionStorage.removeItem('crok_pin'); }
 };
+/* ---- setting a tournament up ----
+   Two numbers decide the shape of the day: how many are playing, and whether it
+   is singles or doubles. Poules, rounds and the size of the knockout all follow,
+   so they are worked out here and shown before anything is created rather than
+   asked for one at a time. */
+const POULE_SIZE = 4;
+
+function planPoules(entrants, size){
+  if(entrants < 2) return [];
+  const count = Math.max(1, Math.round(entrants / size));
+  const base = Math.floor(entrants / count), extra = entrants % count;
+  return Array.from({length:count}, (_,i)=> base + (i < extra ? 1 : 0));
+}
+function pouleLetter(i){
+  let name = '';
+  for(let n = i; ; n = Math.floor(n/26) - 1){ name = String.fromCharCode(65 + n%26) + name; if(n < 26) break; }
+  return name;
+}
+/* A knockout needs a power of two. Take the poule winners first, then as many
+   of the best runners-up as it takes to fill the bracket. */
+function bracketFor(pouleCount){
+  let size = 1; while(size < pouleCount) size *= 2;
+  return { size, wildcards: size - pouleCount };
+}
+
+function setupPlan(){
+  const doubles = $('#cDiscipline').value !== 'singles';
+  const entrants = Math.max(0, +$('#cEntrants').value || 0);
+  const sizes = planPoules(entrants, POULE_SIZE);
+  const bracket = bracketFor(sizes.length);
+  /* Rounds are not a free choice. Everyone plays everyone else in their poule,
+     so a poule of four is three rounds. Where the poules are uneven the biggest
+     one sets the number, and the smaller ones give someone a bye. */
+  const biggest = sizes.length ? Math.max(...sizes) : 0;
+  const rounds = Math.max(1, biggest - 1);
+  return { doubles, entrants, sizes, bracket, rounds };
+}
+
+function renderPlan(){
+  const p = setupPlan();
+  const noun = p.doubles ? 'teams' : 'players';
+  $('#cEntrantsLab').textContent = p.doubles ? 'How many teams' : 'How many players';
+
+  if(p.entrants < 2){ $('#cPlan').innerHTML = '<p class="muted">Enter how many are playing.</p>'; return; }
+
+  const grouped = {};
+  p.sizes.forEach(n => { grouped[n] = (grouped[n]||0) + 1; });
+  const shape = Object.entries(grouped)
+    .map(([n,c]) => c + ' poule' + (c>1?'s':'') + ' of ' + n).join(' and ');
+
+  $('#cPlan').innerHTML =
+      '<div class="planline"><b>' + p.entrants + ' ' + noun + '</b> in <b>' + shape + '</b></div>'
+    + '<div class="planline"><b>' + p.rounds + ' rounds</b> in the poules — everyone plays everyone in theirs</div>'
+    + '<div class="planline">' + p.sizes.length + ' poule winners'
+      + (p.bracket.wildcards > 0
+          ? ' plus the ' + p.bracket.wildcards + ' best runner' + (p.bracket.wildcards>1?'s':'') + '-up'
+          : '')
+      + ' go through to a <b>last ' + p.bracket.size + '</b></div>'
+    + '<div class="planline muted">Each match is 4 sets. A set goes to whoever scores more in it and is worth 2, or 1 each when level.</div>';
+}
+['#cDiscipline','#cEntrants'].forEach(sel => {
+  $(sel).addEventListener('input', renderPlan);
+  $(sel).addEventListener('change', renderPlan);
+});
+renderPlan();
+
 $('#createBtn').onclick = async ()=>{
+  const p = setupPlan();
+  if(p.entrants < 2){ toast('How many are playing?', true); return; }
+  const pinValue = $('#cPin').value.trim();
+  if(!pinValue){ toast('Set an organizer PIN — you need it to run the day.', true); return; }
+
   const r = await api('create_event', {name:$('#cName').value, play_code:$('#cCode').value,
-    admin_pin:$('#cPin').value, num_rounds:+$('#cRounds').value});
+    admin_pin:pinValue, num_rounds:p.rounds, discipline: p.doubles ? 'doubles' : 'singles'});
   if(!r.ok){ toast(r.error,true); return; }
-  setPin($('#cPin').value.trim()); show();
+  setPin(pinValue);
+
+  // Make the poules now, so the names can be spread over them straight away.
+  const poules = p.sizes.map((n,i)=>({name: pouleLetter(i), tables: Math.ceil(n/2)}));
+  const sp = await api('set_poules', {poules});
+  if(!sp.ok){ toast(sp.error,true); return; }
+  await api('update_event', {advance_per_poule:1, wildcards:p.bracket.wildcards});
+
+  $('#createCard').classList.add('hidden');
+  showEntries(p);
 };
+
+/* ---- step two: the names ----
+   A paste of a list, because nobody wants forty-four trips through a form. */
+let ENTRY_PLAN = null;
+
+function showEntries(p){
+  ENTRY_PLAN = p;
+  $('#eNoun').textContent = p.doubles ? 'teams' : 'players';
+  $('#eHelp').textContent = p.doubles
+    ? 'One team per line. Add the two players after the name if you have them, separated by commas.'
+    : 'One player per line.';
+  $('#eList').placeholder = p.doubles
+    ? 'De Gladde Schijven, Anne de Vries, Bram Jansen\nVingervlug, Cees Bakker, Daan Visser'
+    : 'Anne de Vries\nBram Jansen';
+  $('#entriesCard').classList.remove('hidden');
+  $('#eList').focus();
+  renderEntryPreview();
+}
+
+function parseEntries(text, doubles){
+  return text.split('\n').map(line=>line.trim()).filter(Boolean).map(line=>{
+    const parts = line.split(',').map(s=>s.trim());
+    if(doubles) return {name: parts[0]||'', player1: parts[1]||'', player2: parts[2]||''};
+    // For singles the person is the entry, so the name is the player.
+    return {name: parts[0]||'', player1: parts[0]||'', player2: ''};
+  }).filter(e=>e.name);
+}
+
+function renderEntryPreview(){
+  if(!ENTRY_PLAN) return;
+  const entries = parseEntries($('#eList').value, ENTRY_PLAN.doubles);
+  const want = ENTRY_PLAN.entrants;
+  const noun = ENTRY_PLAN.doubles ? 'teams' : 'players';
+  if(entries.length === 0){ $('#ePreview').innerHTML = '<p class="muted">Nothing yet.</p>'; return; }
+
+  const diff = entries.length - want;
+  const note = diff === 0 ? '' :
+    diff > 0 ? '<div class="planline muted">' + diff + ' more than planned — the poules will be a little bigger.</div>'
+             : '<div class="planline muted">' + (-diff) + ' short of the ' + want + ' planned — the poules will be a little smaller.</div>';
+
+  $('#ePreview').innerHTML =
+      '<div class="planline"><b>' + entries.length + ' ' + noun + '</b>, spread evenly over '
+      + ENTRY_PLAN.sizes.length + ' poules</div>' + note;
+}
+$('#eList').addEventListener('input', renderEntryPreview);
+
+$('#eAddBtn').onclick = async ()=>{
+  const entries = parseEntries($('#eList').value, ENTRY_PLAN.doubles);
+  if(!entries.length){ toast('Paste the names first.', true); return; }
+
+  const added = await api('bulk_add_teams', {teams: entries});
+  if(!added.ok){ toast(added.error,true); return; }
+
+  // Deal them round the poules one at a time, so the poules stay even whatever
+  // number turned up.
+  const st = await api('admin_state', {});
+  if(st.ok && st.poules.length){
+    const poules = st.poules;
+    let i = 0;
+    for(const team of st.teams){
+      await api('update_team', {team_id: team.id, poule_id: poules[i % poules.length].id});
+      i++;
+    }
+  }
+  $('#entriesCard').classList.add('hidden');
+  show();
+};
+$('#eSkipBtn').onclick = ()=>{ $('#entriesCard').classList.add('hidden'); show(); };
 
 async function show(){
   $('#gate').classList.add('hidden'); $('#dash').classList.remove('hidden');
@@ -385,7 +567,7 @@ function renderMatches(){
         ${m.phase==='ko'&&b?`<select data-f="shootout_winner" data-m="${m.id}" style="flex:0 0 130px" title="shoot-out winner (2–2 only)">
           <option value="">shoot-out…</option>
           <option value="${m.team_a_id}" ${m.shootout_winner===m.team_a_id?'selected':''}>${esc(a?a.name:'A')} won SO</option>
-          <option value="${m.team_b_id}" ${m.shootout_winner===m.team_b_id?'selected':''}>${esc(b.name)} won SO</option></select>`:''}
+          <option value="${m.team_b_id}" ${m.shootout_winner===m.team_b_id?'selected':''}>${esc(b?b.name:'B')} won SO</option></select>`:''}
         <button class="btn ghost" data-save="${m.id}" style="flex:0 0 auto;padding:8px 12px">Save</button></div>`;
     });
   });
